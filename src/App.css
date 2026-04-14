@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   color: #1f2937;
   background: #eef1f6;
   font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
@@ -14,15 +14,11 @@ button {
 .app-shell {
   --page-padding-block: 5.5dvh;
   --page-padding-inline: 4dvw;
-  min-height: 100dvh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding-block: var(--page-padding-block);
-  padding-inline: var(--page-padding-inline);
-  background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.78), transparent 42%),
-    linear-gradient(180deg, #edf1f6 0%, #e7ebf2 100%);
+  position: relative;
+  width: 100dvw;
+  height: 100dvh;
+  overflow: hidden;
+  background: #f8fafc;
 }
 
 .modal-shell {
@@ -480,3 +476,5 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+

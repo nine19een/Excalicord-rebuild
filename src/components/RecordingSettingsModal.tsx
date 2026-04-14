@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import AspectRatioSection from './AspectRatioSection';
 import BackgroundSection from './BackgroundSection';
 import CameraSection from './CameraSection';
@@ -9,7 +9,11 @@ import {
   backgroundOptions,
 } from '../mockOptions';
 
-function RecordingSettingsModal() {
+type RecordingSettingsModalProps = {
+  onClose?: () => void;
+};
+
+function RecordingSettingsModal({ onClose }: RecordingSettingsModalProps) {
   const [activeAspect, setActiveAspect] = useState('1:1');
   const [activeCategory, setActiveCategory] = useState('all');
   const [activeBackgroundId, setActiveBackgroundId] = useState('bg-white');
@@ -56,7 +60,7 @@ function RecordingSettingsModal() {
           <div className="settings-header">
             <div className="settings-header-row">
               <div className="settings-title">录制设置</div>
-              <button type="button" className="close-button" aria-label="关闭">
+              <button type="button" className="close-button" aria-label="关闭" onClick={onClose}>
                 ×
               </button>
             </div>
@@ -96,3 +100,4 @@ function RecordingSettingsModal() {
 }
 
 export default RecordingSettingsModal;
+

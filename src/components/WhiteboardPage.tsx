@@ -1,26 +1,107 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import type React from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import FloatingControlBar from './FloatingControlBar';
 import TopToolbar from './TopToolbar';
 import WhiteboardStage from './WhiteboardStage';
 import type {
   BoardElement,
+  ColorStyle,
   ImageElement,
   TextEditorState,
+  TextStyle,
   ToolType,
   ViewportState,
 } from '../whiteboard/types';
+import { DEFAULT_BOARD_COLOR, DEFAULT_TEXT_STYLE } from '../whiteboard/types';
 import { duplicateElements, generateElementId, getElementBounds, offsetElement } from '../whiteboard/utils';
 
 type WhiteboardPageProps = {
   onOpenSettings: () => void;
 };
 
+type ElementsHistory = {
+  past: BoardElement[][];
+  present: BoardElement[];
+  future: BoardElement[][];
+};
+
 function WhiteboardPage({ onOpenSettings }: WhiteboardPageProps) {
   const [activeTool, setActiveTool] = useState<ToolType>('select');
-  const [elements, setElements] = useState<BoardElement[]>([]);
+  const [history, setHistory] = useState<ElementsHistory>({
+    past: [],
+    present: [],
+    future: [],
+  });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [viewport, setViewport] = useState<ViewportState>({ x: 180, y: 120 });
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
+  const [textDefaults, setTextDefaults] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
+  const [shapeDefaults, setShapeDefaults] = useState<ColorStyle>({ color: DEFAULT_BOARD_COLOR });
+  const [clipboard, setClipboard] = useState<BoardElement[]>([]);
+  const [pasteCount, setPasteCount] = useState(0);
+
+  const elements = history.present;
+
+  const onElementsChange = useCallback((update: React.SetStateAction<BoardElement[]>) => {
+    setHistory((current) => ({
+      ...current,
+      present: resolveElementsUpdate(update, current.present),
+    }));
+  }, []);
+
+  const onCommitElementsChange = useCallback((previous: BoardElement[], next: BoardElement[]) => {
+    setHistory((current) => {
+      if (serializeElements(previous) === serializeElements(next)) {
+        return {
+          ...current,
+          present: cloneElements(next),
+        };
+      }
+
+      return {
+        past: [...current.past, cloneElements(previous)],
+        present: cloneElements(next),
+        future: [],
+      };
+    });
+  }, []);
+
+  const undo = useCallback(() => {
+    setHistory((current) => {
+      if (current.past.length === 0) {
+        return current;
+      }
+
+      const previous = current.past[current.past.length - 1];
+      return {
+        past: current.past.slice(0, -1),
+        present: cloneElements(previous),
+        future: [cloneElements(current.present), ...current.future],
+      };
+    });
+  }, []);
+
+  const redo = useCallback(() => {
+    setHistory((current) => {
+      if (current.future.length === 0) {
+        return current;
+      }
+
+      const next = current.future[0];
+      return {
+        past: [...current.past, cloneElements(current.present)],
+        present: cloneElements(next),
+        future: current.future.slice(1),
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    setSelectedIds((current) => current.filter((id) => elements.some((element) => element.id === id)));
+    setTextEditor((current) =>
+      current && elements.some((element) => element.id === current.elementId && element.type === 'text') ? current : null
+    );
+  }, [elements]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -34,30 +115,57 @@ function WhiteboardPage({ onOpenSettings }: WhiteboardPageProps) {
         return;
       }
 
+      const key = event.key.toLowerCase();
+      const hasModifier = event.metaKey || event.ctrlKey;
+
+      if (hasModifier && key === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+        return;
+      }
+
+      if (event.ctrlKey && key === 'y') {
+        event.preventDefault();
+        redo();
+        return;
+      }
+
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedIds.length > 0) {
         event.preventDefault();
-        setElements((current) => current.filter((element) => !selectedIds.includes(element.id)));
+        const nextElements = elements.filter((element) => !selectedIds.includes(element.id));
+        onCommitElementsChange(elements, nextElements);
         setSelectedIds([]);
         setTextEditor((current) => (current && selectedIds.includes(current.elementId) ? null : current));
         return;
       }
 
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c' && selectedIds.length > 0) {
+      if (hasModifier && key === 'c' && selectedIds.length > 0) {
         event.preventDefault();
-        setElements((current) => {
-          const nextElements = duplicateElements(
-            current.filter((element) => selectedIds.includes(element.id)),
-            generateElementId
-          ).map((element) => offsetElement(element, 24, 24));
+        setClipboard(cloneElements(elements.filter((element) => selectedIds.includes(element.id))));
+        setPasteCount(0);
+        return;
+      }
 
-          return [...current, ...nextElements];
-        });
+      if (hasModifier && key === 'v' && clipboard.length > 0) {
+        event.preventDefault();
+        const offsetStep = 24 * (pasteCount + 1);
+        const pastedElements = duplicateElements(clipboard, generateElementId).map((element) =>
+          offsetElement(element, offsetStep, offsetStep)
+        );
+        const nextElements = [...elements, ...pastedElements];
+        onCommitElementsChange(elements, nextElements);
+        setSelectedIds(pastedElements.map((element) => element.id));
+        setPasteCount((current) => current + 1);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds]);
+  }, [clipboard, elements, onCommitElementsChange, pasteCount, redo, selectedIds, undo]);
 
   const handleInsertImage = async (file: File) => {
     const src = await readFileAsDataUrl(file);
@@ -81,7 +189,8 @@ function WhiteboardPage({ onOpenSettings }: WhiteboardPageProps) {
       fileName: file.name,
     };
 
-    setElements((current) => [...current, nextElement]);
+    const nextElements = [...elements, nextElement];
+    onCommitElementsChange(elements, nextElements);
     setSelectedIds([nextElement.id]);
     setActiveTool('select');
   };
@@ -90,6 +199,32 @@ function WhiteboardPage({ onOpenSettings }: WhiteboardPageProps) {
     () => elements.filter((element) => selectedIds.includes(element.id)),
     [elements, selectedIds]
   );
+
+  const selectedTextElement = useMemo(() => {
+    if (selectedIds.length !== 1) {
+      return null;
+    }
+
+    const element = elements.find((item) => item.id === selectedIds[0]);
+    return element?.type === 'text' ? element : null;
+  }, [elements, selectedIds]);
+
+  const selectedColorElements = useMemo(
+    () =>
+      elements.filter(
+        (element): element is Extract<BoardElement, { type: 'draw' | 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text' }> =>
+          selectedIds.includes(element.id) && isColorEditableElement(element)
+      ),
+    [elements, selectedIds]
+  );
+
+  const selectedColorStyle = useMemo(() => {
+    if (selectedColorElements.length === 0) {
+      return null;
+    }
+
+    return { color: selectedColorElements[0].color };
+  }, [selectedColorElements]);
 
   const selectedBounds = useMemo(() => {
     if (selectedElements.length === 0) {
@@ -116,9 +251,63 @@ function WhiteboardPage({ onOpenSettings }: WhiteboardPageProps) {
     }, null);
   }, [selectedElements]);
 
+  const handleSelectedTextStyleChange = (patch: Partial<TextStyle>) => {
+    if (!selectedTextElement) {
+      return;
+    }
+
+    setTextDefaults((current) => ({ ...current, ...patch }));
+    onElementsChange((current) =>
+      current.map((element) =>
+        element.id === selectedTextElement.id && element.type === 'text'
+          ? {
+              ...element,
+              ...patch,
+            }
+          : element
+      )
+    );
+  };
+
+  const handleSelectedColorChange = (patch: Partial<ColorStyle>) => {
+    if (selectedColorElements.length === 0) {
+      return;
+    }
+
+    if (patch.color) {
+      if (selectedColorElements.some((element) => element.type === 'text')) {
+        setTextDefaults((current) => ({ ...current, color: patch.color! }));
+      }
+
+      if (selectedColorElements.some((element) => isShapeColorableElement(element))) {
+        setShapeDefaults((current) => ({ ...current, color: patch.color! }));
+      }
+    }
+
+    const selectedColorIds = new Set(selectedColorElements.map((element) => element.id));
+    const nextElements = elements.map((element) =>
+      selectedColorIds.has(element.id) && isColorEditableElement(element)
+        ? {
+            ...element,
+            ...patch,
+          }
+        : element
+    );
+
+    onCommitElementsChange(elements, nextElements);
+  };
+
   return (
     <div className="board-page">
-      <TopToolbar activeTool={activeTool} onToolChange={setActiveTool} onInsertImage={handleInsertImage} />
+      <TopToolbar
+        activeTool={activeTool}
+        onToolChange={setActiveTool}
+        onInsertImage={handleInsertImage}
+        selectedTextStyle={selectedTextElement}
+        selectedColorStyle={selectedColorStyle}
+        onSelectedTextStyleChange={handleSelectedTextStyleChange}
+        onSelectedColorChange={handleSelectedColorChange}
+      />
       <FloatingControlBar onOpenSettings={onOpenSettings} />
 
       <div className="board-page__stage">
@@ -127,10 +316,13 @@ function WhiteboardPage({ onOpenSettings }: WhiteboardPageProps) {
           elements={elements}
           selectedIds={selectedIds}
           selectedBounds={selectedBounds}
+          textDefaults={textDefaults}
+          shapeDefaults={shapeDefaults}
           textEditor={textEditor}
           viewport={viewport}
           onActiveToolChange={setActiveTool}
-          onElementsChange={setElements}
+          onCommitElementsChange={onCommitElementsChange}
+          onElementsChange={onElementsChange}
           onSelectedIdsChange={setSelectedIds}
           onTextEditorChange={setTextEditor}
           onViewportChange={setViewport}
@@ -138,6 +330,21 @@ function WhiteboardPage({ onOpenSettings }: WhiteboardPageProps) {
       </div>
     </div>
   );
+}
+
+function resolveElementsUpdate(
+  update: React.SetStateAction<BoardElement[]>,
+  current: BoardElement[]
+) {
+  return typeof update === 'function' ? update(current) : update;
+}
+
+function serializeElements(elements: BoardElement[]) {
+  return JSON.stringify(elements);
+}
+
+function cloneElements(elements: BoardElement[]) {
+  return structuredClone(elements);
 }
 
 async function readFileAsDataUrl(file: File) {
@@ -158,5 +365,22 @@ async function readImageDimensions(src: string) {
   });
 }
 
-export default WhiteboardPage;
+function isShapeColorableElement(
+  element: BoardElement
+): element is Extract<BoardElement, { type: 'draw' | 'rectangle' | 'ellipse' | 'line' | 'arrow' }> {
+  return (
+    element.type === 'draw' ||
+    element.type === 'rectangle' ||
+    element.type === 'ellipse' ||
+    element.type === 'line' ||
+    element.type === 'arrow'
+  );
+}
 
+function isColorEditableElement(
+  element: BoardElement
+): element is Extract<BoardElement, { type: 'draw' | 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text' }> {
+  return isShapeColorableElement(element) || element.type === 'text';
+}
+
+export default WhiteboardPage;

@@ -1,0 +1,275 @@
+# Excalicord-rebuild - project-scoped Codex rules
+# Goal:
+# - Keep default permissions
+# - Auto-allow high-frequency low-risk commands
+# - Still prompt for history-changing / remote-changing git commands
+# - Forbid obviously destructive cleanup commands
+
+# --------------------------------------------------
+# Frontend / Vite / TypeScript common commands
+# --------------------------------------------------
+
+prefix_rule(
+  pattern = ["npm", "run", ["dev", "build", "preview"]],
+  decision = "allow",
+  justification = "Allow common Vite project scripts without repeated prompts.",
+  match = [
+    "npm run dev",
+    "npm run build",
+    "npm run preview"
+  ],
+  not_match = [
+    "npm run test",
+    "npm publish"
+  ]
+)
+
+prefix_rule(
+  pattern = ["npx", "tsc", "--noEmit", "-p", "tsconfig.app.json"],
+  decision = "allow",
+  justification = "Allow project type-check command.",
+  match = [
+    "npx tsc --noEmit -p tsconfig.app.json"
+  ]
+)
+
+prefix_rule(
+  pattern = ["npm", ["install", "i"]],
+  decision = "prompt",
+  justification = "Package installation changes dependencies; always confirm first.",
+  match = [
+    "npm install",
+    "npm i"
+  ]
+)
+
+prefix_rule(
+  pattern = ["npm", "uninstall"],
+  decision = "prompt",
+  justification = "Dependency removal should always be reviewed.",
+  match = [
+    "npm uninstall react"
+  ]
+)
+
+# --------------------------------------------------
+# Read/search commands that are usually safe
+# --------------------------------------------------
+
+prefix_rule(
+  pattern = ["rg"],
+  decision = "allow",
+  justification = "Allow ripgrep for codebase search.",
+  match = [
+    "rg WhiteboardStage src",
+    "rg commitTextEdit src/components"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "status"],
+  decision = "allow",
+  justification = "Allow checking repo status.",
+  match = [
+    "git status"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "diff"],
+  decision = "allow",
+  justification = "Allow viewing local diffs.",
+  match = [
+    "git diff",
+    "git diff -- src/components/WhiteboardStage.tsx"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "log"],
+  decision = "allow",
+  justification = "Allow viewing commit history.",
+  match = [
+    "git log",
+    "git log --oneline --decorate -5"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "branch"],
+  decision = "allow",
+  justification = "Allow viewing/switching branch metadata only when requested by Codex.",
+  match = [
+    "git branch",
+    "git branch --show-current"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "remote", "-v"],
+  decision = "allow",
+  justification = "Allow checking configured remotes.",
+  match = [
+    "git remote -v"
+  ]
+)
+
+# --------------------------------------------------
+# Safe local staging
+# --------------------------------------------------
+
+prefix_rule(
+  pattern = ["git", "add"],
+  decision = "allow",
+  justification = "Allow staging tracked changes in this repo.",
+  match = [
+    "git add .",
+    "git add src/components/WhiteboardStage.tsx"
+  ]
+)
+
+# --------------------------------------------------
+# History-changing or remote-changing Git commands
+# Keep these prompt-based
+# --------------------------------------------------
+
+prefix_rule(
+  pattern = ["git", "commit"],
+  decision = "prompt",
+  justification = "Commits create history; review before allowing.",
+  match = [
+    "git commit -m feat: complete whiteboard MVP foundation"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "push"],
+  decision = "prompt",
+  justification = "Push affects remote history; always confirm.",
+  match = [
+    "git push",
+    "git push -u origin main"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "pull"],
+  decision = "prompt",
+  justification = "Pull can merge/rewrite local state; confirm first.",
+  match = [
+    "git pull",
+    "git pull origin main"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "merge"],
+  decision = "prompt",
+  justification = "Merges should be reviewed before running.",
+  match = [
+    "git merge feature/text-style"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "rebase"],
+  decision = "prompt",
+  justification = "Rebase rewrites history; always confirm.",
+  match = [
+    "git rebase main"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "reset"],
+  decision = "prompt",
+  justification = "Reset can discard or rewrite state; confirm first.",
+  match = [
+    "git reset --soft HEAD~1",
+    "git reset --hard HEAD~1"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "checkout"],
+  decision = "prompt",
+  justification = "Checkout/switch can move HEAD or replace working tree; confirm first.",
+  match = [
+    "git checkout main"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "switch"],
+  decision = "prompt",
+  justification = "Switch can move HEAD or replace working tree; confirm first.",
+  match = [
+    "git switch main"
+  ]
+)
+
+prefix_rule(
+  pattern = ["git", "restore"],
+  decision = "prompt",
+  justification = "Restore can discard local changes; confirm first.",
+  match = [
+    "git restore src/App.tsx"
+  ]
+)
+
+# --------------------------------------------------
+# Explicitly block obviously destructive cleanup
+# --------------------------------------------------
+
+prefix_rule(
+  pattern = ["git", "clean"],
+  decision = "forbidden",
+  justification = "Forbidden for this project. Use explicit manual cleanup instead.",
+  match = [
+    "git clean -fd",
+    "git clean -fdx"
+  ]
+)
+
+prefix_rule(
+  pattern = ["rm"],
+  decision = "forbidden",
+  justification = "Direct recursive deletion is forbidden from Codex rules for this repo. Delete files manually if needed.",
+  match = [
+    "rm -rf node_modules",
+    "rm -rf src"
+  ]
+)
+
+prefix_rule(
+  pattern = ["rmdir"],
+  decision = "forbidden",
+  justification = "Recursive directory deletion is forbidden from Codex rules for this repo.",
+  match = [
+    "rmdir /s /q dist"
+  ]
+)
+
+prefix_rule(
+  pattern = ["del"],
+  decision = "forbidden",
+  justification = "Bulk deletion is forbidden from Codex rules for this repo.",
+  match = [
+    "del /f /q *.tmp"
+  ]
+)
+
+# --------------------------------------------------
+# Optional: allow creating folders with native mkdir
+# Useful only if Codex invokes mkdir directly, not via PowerShell wrapper
+# --------------------------------------------------
+
+prefix_rule(
+  pattern = ["mkdir"],
+  decision = "allow",
+  justification = "Allow creating project folders with mkdir.",
+  match = [
+    "mkdir src/whiteboard",
+    "mkdir .codex"
+  ]
+)

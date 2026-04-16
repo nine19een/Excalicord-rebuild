@@ -212,7 +212,9 @@ export function resizeBoxElement(
   const bounds = getElementBounds(element);
 
   if (element.type === 'draw') {
-    const targetBounds = getResizedBounds(bounds, handle, point);
+    const targetBounds = preserveAspectRatio
+      ? getAspectRatioConstrainedBounds(bounds, handle, point)
+      : getResizedBounds(bounds, handle, point);
     return {
       ...element,
       points: scaleDrawPointsToBounds(element.points, bounds, targetBounds),
@@ -366,6 +368,39 @@ export function scaleElementToBounds(
     default:
       return element;
   }
+}
+
+export function getAspectRatioConstrainedBounds(
+  bounds: ReturnType<typeof normalizeRect>,
+  handle: DragHandle,
+  point: BoardPoint
+) {
+  const anchor = getOppositeCorner(bounds, handle);
+  const dx = point.x - anchor.x;
+  const dy = point.y - anchor.y;
+  const direction = getHandleDirection(handle);
+  const aspectRatio = bounds.width / Math.max(bounds.height, 1);
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  let nextWidth = absDx;
+  let nextHeight = absDy;
+
+  if (absDx / Math.max(aspectRatio, 0.0001) > absDy) {
+    nextHeight = absDx / Math.max(aspectRatio, 0.0001);
+  } else {
+    nextWidth = absDy * aspectRatio;
+  }
+
+  const scale = Math.max(MIN_BOX_SIZE / Math.max(nextWidth, 1), MIN_BOX_SIZE / Math.max(nextHeight, 1), 1);
+  nextWidth *= scale;
+  nextHeight *= scale;
+
+  const constrainedPoint = {
+    x: anchor.x + resolveSignedDistance(dx, nextWidth, direction.x),
+    y: anchor.y + resolveSignedDistance(dy, nextHeight, direction.y),
+  };
+
+  return normalizeRect(anchor.x, anchor.y, constrainedPoint.x - anchor.x, constrainedPoint.y - anchor.y);
 }
 
 export function duplicateElements(elements: BoardElement[], createId: () => string) {

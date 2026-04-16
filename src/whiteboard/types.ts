@@ -1,4 +1,4 @@
-﻿export type ToolType =
+export type ToolType =
   | 'hand'
   | 'select'
   | 'rectangle'
@@ -18,6 +18,7 @@ export type BoardPoint = {
 export type ViewportState = {
   x: number;
   y: number;
+  zoom: number;
 };
 
 export type DragHandle = 'nw' | 'ne' | 'sw' | 'se' | 'start' | 'end';
@@ -26,11 +27,19 @@ export type ColorStyle = {
   color: string;
 };
 
+export type LayerAction = 'bring-forward' | 'send-backward' | 'bring-to-front' | 'send-to-back';
+
 export type TextStyle = {
   fontFamily: string;
   fontSize: number;
   color: string;
 };
+
+export const MIN_VIEWPORT_ZOOM = 0.25;
+export const MAX_VIEWPORT_ZOOM = 4;
+export const FIT_CONTENT_MIN_ZOOM = 0.5;
+export const FIT_CONTENT_MAX_ZOOM = 1.5;
+export const ZOOM_BUTTON_STEP = 0.1;
 
 export const DEFAULT_BOARD_COLOR = '#1f2937';
 

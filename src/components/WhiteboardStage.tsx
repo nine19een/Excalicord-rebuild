@@ -6,6 +6,7 @@ import type {
   DragHandle,
   InteractionState,
   ColorStyle,
+  LinearElement,
   TextEditorState,
   TextElement,
   TextStyle,
@@ -17,6 +18,7 @@ import {
   getConstrainedBoxFromOrigin,
   getConstrainedLinearPoint,
   getElementBounds,
+  getAspectRatioConstrainedBounds,
   getLinearHandlePositions,
   getResizedBounds,
   getSelectionHandlePositions,
@@ -107,6 +109,8 @@ function WhiteboardStage({
 
   const activeEditorHeight = editingElement ? editorHeight ?? editingElement.height : null;
 
+
+
   const getTextEditorContentHeight = (textarea: HTMLTextAreaElement, fontSize: number) => {
     const minimumHeight = Math.ceil(fontSize * 1.4 + 16);
     return Math.max(textarea.scrollHeight, minimumHeight);
@@ -122,8 +126,15 @@ function WhiteboardStage({
         }
       : null;
 
+  const isMarqueeSelecting = interaction?.type === 'selecting';
+  const isTransformingSelection =
+    interaction?.type === 'moving' ||
+    interaction?.type === 'resizing' ||
+    interaction?.type === 'drawing-shape' ||
+    interaction?.type === 'drawing-stroke';
+
   const selectionBox =
-    interaction?.type === 'selecting'
+    isMarqueeSelecting
       ? normalizeRect(
           interaction.startPoint.x,
           interaction.startPoint.y,
@@ -140,6 +151,15 @@ function WhiteboardStage({
     return elements.filter((element) => rectContainsBounds(selectionBox, getElementBounds(element)));
   }, [elements, selectionBox]);
 
+  const multiSelectionHighlightElements = useMemo(() => {
+    if (isMarqueeSelecting || isTransformingSelection || selectedIds.length <= 1) {
+      return [];
+    }
+
+    const selectedSet = new Set(selectedIds);
+    return elements.filter((element) => selectedSet.has(element.id));
+  }, [elements, isMarqueeSelecting, isTransformingSelection, selectedIds]);
+
   const getWorldPoint = (event: React.PointerEvent | React.MouseEvent): BoardPoint => {
     const rect = surfaceRef.current?.getBoundingClientRect();
     if (!rect) {
@@ -147,8 +167,8 @@ function WhiteboardStage({
     }
 
     return {
-      x: event.clientX - rect.left - viewport.x,
-      y: event.clientY - rect.top - viewport.y,
+      x: (event.clientX - rect.left - viewport.x) / viewport.zoom,
+      y: (event.clientY - rect.top - viewport.y) / viewport.zoom,
     };
   };
 
@@ -199,6 +219,10 @@ function WhiteboardStage({
     const boxHandle = getBoxResizeHandle(point);
     if (boxHandle) {
       return getResizeCursor(boxHandle);
+    }
+
+    if (selectedSingleElement?.type === 'draw' && selectedBounds && isPointInBounds(point, selectedBounds)) {
+      return 'move';
     }
 
     const hitElement = getTopElementAtPoint(point);
@@ -564,6 +588,7 @@ function WhiteboardStage({
         onViewportChange({
           x: interaction.startViewport.x + (event.clientX - interaction.startClient.x),
           y: interaction.startViewport.y + (event.clientY - interaction.startClient.y),
+          zoom: interaction.startViewport.zoom,
         });
         break;
       case 'resizing':
@@ -577,7 +602,9 @@ function WhiteboardStage({
           }
 
           if (interaction.targetIds.length > 1) {
-            const nextBounds = getResizedBounds(interaction.selectionBounds, interaction.handle, point);
+            const nextBounds = event.shiftKey
+              ? getAspectRatioConstrainedBounds(interaction.selectionBounds, interaction.handle, point)
+              : getResizedBounds(interaction.selectionBounds, interaction.handle, point);
             const snapshotMap = interaction.snapshot as ElementSnapshot;
 
             return current.map((element) => {
@@ -598,7 +625,7 @@ function WhiteboardStage({
             }
 
             const keepSquare = event.shiftKey && (element.type === 'rectangle' || element.type === 'ellipse');
-            const keepAspectRatio = event.shiftKey && element.type === 'image';
+            const keepAspectRatio = event.shiftKey && (element.type === 'image' || element.type === 'draw');
             return resizeBoxElement(snapshot, interaction.handle, point, keepSquare, keepAspectRatio);
           });
         });
@@ -652,11 +679,22 @@ function WhiteboardStage({
     onTextEditorChange({ elementId: hitElement.id, value: hitElement.text });
   };
 
+  const stageCursorStyle =
+    interaction?.type === 'panning'
+      ? { cursor: 'grabbing' }
+      : activeTool === 'select' && hoverCursor
+        ? { cursor: hoverCursor }
+        : undefined;
+  const stageStyle = {
+    ...(stageCursorStyle ?? {}),
+    '--board-grid-size': `${24 * viewport.zoom}px`,
+  } as React.CSSProperties;
+
   return (
     <div
       ref={surfaceRef}
       className={`board-stage board-stage--${activeTool}`}
-      style={activeTool === 'select' && hoverCursor ? { cursor: hoverCursor } : undefined}
+      style={stageStyle}
       onDoubleClick={handleStageDoubleClick}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -664,24 +702,24 @@ function WhiteboardStage({
       onPointerLeave={() => setHoverCursor(null)}
     >
       <svg className="board-stage__svg">
-        <defs>
-          <marker id="board-arrow-head" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-            <path d="M 0 0 L 12 6 L 0 12 z" fill="context-stroke" />
-          </marker>
-          <marker id="board-arrow-head-selected" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-            <path d="M 0 0 L 12 6 L 0 12 z" fill="context-stroke" />
-          </marker>
-          <marker id="board-arrow-head-preview" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-            <path d="M 0 0 L 12 6 L 0 12 z" fill="rgba(79, 70, 229, 0.52)" />
-          </marker>
-        </defs>
-
-        <g transform={`translate(${viewport.x} ${viewport.y})`}>
+        <g transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})`}>
           {elements.map((element) =>
             editingElement?.type === 'text' && element.id === editingElement.id ? null : renderElement(element)
           )}
 
+          {selectionBox && (
+            <rect
+              x={selectionBox.x}
+              y={selectionBox.y}
+              width={selectionBox.width}
+              height={selectionBox.height}
+              className="board-stage__selection-area"
+            />
+          )}
+
           {selectionPreviewElements.map((element) => renderPreviewOverlay(element))}
+
+          {multiSelectionHighlightElements.map((element) => renderPreviewOverlay(element))}
 
           {selectionBox && (
             <rect
@@ -693,7 +731,7 @@ function WhiteboardStage({
             />
           )}
 
-          {(editingBounds || selectedBounds) && !selectedElementUsesCustomSelection && (
+          {!isMarqueeSelecting && (editingBounds || selectedBounds) && !selectedElementUsesCustomSelection && (
             <rect
               x={(editingBounds ?? selectedBounds)?.x}
               y={(editingBounds ?? selectedBounds)?.y}
@@ -702,16 +740,18 @@ function WhiteboardStage({
               className={
                 editingElement?.type === 'text'
                   ? 'board-stage__editing-bounds'
-                  : selectedSingleElement?.type === 'image'
+                  : selectedIds.length > 1
+                    ? 'board-stage__group-bounds'
+                    : selectedSingleElement?.type === 'image'
                     ? 'board-stage__selected-bounds board-stage__selected-bounds--solid'
                     : 'board-stage__selected-bounds'
               }
             />
           )}
 
-          {selectedSingleElement && renderSelectedOverlay(selectedSingleElement)}
+          {!isMarqueeSelecting && !isTransformingSelection && selectedSingleElement && renderSingleSelectionOverlay(selectedSingleElement)}
 
-          {!editingElement &&
+          {!editingElement && !isMarqueeSelecting &&
             (selectedSingleElement
               ? renderHandles(selectedSingleElement)
               : selectedBounds && selectedIds.length > 1
@@ -727,10 +767,12 @@ function WhiteboardStage({
           value={textEditor?.value ?? ''}
           autoFocus
           style={{
-            left: `${editingElement.x + viewport.x}px`,
-            top: `${editingElement.y + viewport.y}px`,
+            left: `${editingElement.x * viewport.zoom + viewport.x}px`,
+            top: `${editingElement.y * viewport.zoom + viewport.y}px`,
             width: `${editingElement.width}px`,
             height: `${activeEditorHeight ?? editingElement.height}px`,
+            transform: `scale(${viewport.zoom})`,
+            transformOrigin: 'top left',
             fontFamily: editingElement.fontFamily,
             fontSize: `${editingElement.fontSize}px`,
             color: editingElement.color,
@@ -766,6 +808,8 @@ function WhiteboardStage({
     </div>
   );
 }
+
+
 
 function renderElement(element: BoardElement) {
   switch (element.type) {
@@ -808,19 +852,22 @@ function renderElement(element: BoardElement) {
           y2={element.y2}
         />
       );
-    case 'arrow':
+    case 'arrow': {
+      const shaftEnd = getArrowShaftEnd(element);
       return (
-        <line
-          key={element.id}
-          className="board-element board-element--line"
-          style={{ stroke: getElementColor(element) }}
-          x1={element.x1}
-          y1={element.y1}
-          x2={element.x2}
-          y2={element.y2}
-          markerEnd="url(#board-arrow-head)"
-        />
+        <g key={element.id}>
+          <line
+            className="board-element board-element--line board-element--arrow-shaft"
+            style={{ stroke: getElementColor(element) }}
+            x1={element.x1}
+            y1={element.y1}
+            x2={shaftEnd?.x ?? element.x2}
+            y2={shaftEnd?.y ?? element.y2}
+          />
+          {renderArrowHead(element, 'board-element--arrowhead', getElementColor(element))}
+        </g>
       );
+    }
     case 'text':
       return (
         <foreignObject key={element.id} x={element.x} y={element.y} width={element.width} height={element.height}>
@@ -859,26 +906,16 @@ function getElementColor(element: BoardElement) {
   return 'color' in element ? element.color : '#1f2937';
 }
 
-function getElementSelectionFill(element: BoardElement) {
-  const color = getElementColor(element);
-  return toAlphaColor(color, 0.06);
-}
-
-function toAlphaColor(color: string, alpha: number) {
-  const hex = color.replace('#', '');
-
-  if (hex.length !== 6) {
-    return `rgba(79, 70, 229, ${alpha})`;
-  }
-
-  const r = Number.parseInt(hex.slice(0, 2), 16);
-  const g = Number.parseInt(hex.slice(2, 4), 16);
-  const b = Number.parseInt(hex.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
 function renderPreviewOverlay(element: BoardElement) {
   switch (element.type) {
+    case 'draw':
+      return (
+        <polyline
+          key={`${element.id}-preview`}
+          className="board-element--preview-stroke"
+          points={element.points.map((point) => [point.x, point.y].join(',')).join(' ')}
+        />
+      );
     case 'rectangle': {
       const box = normalizeRect(element.x, element.y, element.width, element.height);
       return <rect key={`${element.id}-preview`} className="board-element--preview-shape" {...box} />;
@@ -889,7 +926,6 @@ function renderPreviewOverlay(element: BoardElement) {
         <ellipse
           key={`${element.id}-preview`}
           className="board-element--preview-shape"
-          style={{ stroke: getElementColor(element) }}
           cx={box.x + box.width / 2}
           cy={box.y + box.height / 2}
           rx={box.width / 2}
@@ -908,18 +944,21 @@ function renderPreviewOverlay(element: BoardElement) {
           y2={element.y2}
         />
       );
-    case 'arrow':
+    case 'arrow': {
+      const shaftEnd = getArrowShaftEnd(element);
       return (
-        <line
-          key={`${element.id}-preview`}
-          className="board-element--preview-line"
-          x1={element.x1}
-          y1={element.y1}
-          x2={element.x2}
-          y2={element.y2}
-          markerEnd="url(#board-arrow-head-preview)"
-        />
+        <g key={`${element.id}-preview`}>
+          <line
+            className="board-element--preview-line board-element--preview-arrow-shaft"
+            x1={element.x1}
+            y1={element.y1}
+            x2={shaftEnd?.x ?? element.x2}
+            y2={shaftEnd?.y ?? element.y2}
+          />
+          {renderArrowHead(element, 'board-element--preview-arrowhead')}
+        </g>
       );
+    }
     case 'text': {
       const box = normalizeRect(element.x, element.y, element.width, element.height);
       return <rect key={`${element.id}-preview`} className="board-element--preview-bounds" {...box} />;
@@ -933,17 +972,22 @@ function renderPreviewOverlay(element: BoardElement) {
   }
 }
 
-function renderSelectedOverlay(element: BoardElement) {
-  const selectionStroke = getElementColor(element);
-  const selectionFill = getElementSelectionFill(element);
+function renderSingleSelectionOverlay(element: BoardElement) {
   switch (element.type) {
+    case 'draw':
+      return (
+        <polyline
+          key={`${element.id}-selected`}
+          className="board-element--selected-stroke"
+          points={element.points.map((point) => [point.x, point.y].join(',')).join(' ')}
+        />
+      );
     case 'rectangle': {
       const box = normalizeRect(element.x, element.y, element.width, element.height);
       return (
         <rect
           key={`${element.id}-selected`}
           className="board-element--selected-shape"
-          style={{ stroke: selectionStroke, fill: selectionFill }}
           {...box}
         />
       );
@@ -954,7 +998,6 @@ function renderSelectedOverlay(element: BoardElement) {
         <ellipse
           key={`${element.id}-selected`}
           className="board-element--selected-shape"
-          style={{ stroke: selectionStroke, fill: selectionFill }}
           cx={box.x + box.width / 2}
           cy={box.y + box.height / 2}
           rx={box.width / 2}
@@ -967,31 +1010,74 @@ function renderSelectedOverlay(element: BoardElement) {
         <line
           key={`${element.id}-selected`}
           className="board-element--selected-line"
-          style={{ stroke: selectionStroke }}
           x1={element.x1}
           y1={element.y1}
           x2={element.x2}
           y2={element.y2}
         />
       );
-    case 'arrow':
+    case 'arrow': {
+      const shaftEnd = getArrowShaftEnd(element);
       return (
-        <line
-          key={`${element.id}-selected`}
-          className="board-element--selected-line"
-          style={{ stroke: selectionStroke }}
-          x1={element.x1}
-          y1={element.y1}
-          x2={element.x2}
-          y2={element.y2}
-          markerEnd="url(#board-arrow-head-selected)"
-        />
+        <g key={`${element.id}-selected`}>
+          <line
+            className="board-element--selected-line board-element--selected-arrow-shaft"
+            x1={element.x1}
+            y1={element.y1}
+            x2={shaftEnd?.x ?? element.x2}
+            y2={shaftEnd?.y ?? element.y2}
+          />
+          {renderArrowHead(element, 'board-element--selected-arrowhead')}
+        </g>
       );
+    }
     default:
       return null;
   }
 }
 
+
+function renderArrowHead(element: LinearElement, className: string, color?: string) {
+  const geometry = getArrowHeadGeometry(element);
+
+  if (!geometry) {
+    return null;
+  }
+
+  return <polygon className={className} points={geometry.points} style={color ? { fill: color, stroke: color } : undefined} />;
+}
+
+function getArrowShaftEnd(element: LinearElement) {
+  return getArrowHeadGeometry(element)?.shaftEnd ?? null;
+}
+
+function getArrowHeadGeometry(element: LinearElement) {
+  const dx = element.x2 - element.x1;
+  const dy = element.y2 - element.y1;
+  const length = Math.hypot(dx, dy);
+
+  if (length < 0.001) {
+    return null;
+  }
+
+  const unitX = dx / length;
+  const unitY = dy / length;
+  const normalX = -unitY;
+  const normalY = unitX;
+  const headLength = 15;
+  const headHalfWidth = 7.5;
+  const baseX = element.x2 - unitX * headLength;
+  const baseY = element.y2 - unitY * headLength;
+  const leftX = baseX + normalX * headHalfWidth;
+  const leftY = baseY + normalY * headHalfWidth;
+  const rightX = baseX - normalX * headHalfWidth;
+  const rightY = baseY - normalY * headHalfWidth;
+
+  return {
+    points: `${element.x2},${element.y2} ${leftX},${leftY} ${rightX},${rightY}`,
+    shaftEnd: { x: baseX, y: baseY },
+  };
+}
 function renderHandles(element: BoardElement) {
   if (element.type === 'line' || element.type === 'arrow') {
     return getLinearHandlePositions(element).map((handle) => (

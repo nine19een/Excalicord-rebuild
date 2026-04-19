@@ -3,8 +3,15 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 
 type FloatingControlBarProps = {
   onOpenSettings: () => void;
-  onToggleRecording: () => void;
-  recordingStatus: 'idle' | 'recording' | 'stopping';
+  onEnterPreparing: () => void;
+  onCancelPreparing: () => void;
+  onStartRecording: () => void;
+  onPauseRecording: () => void;
+  onResumeRecording: () => void;
+  onStopRecording: () => void;
+  onToggleTeleprompter: () => void;
+  recordingStatus: 'idle' | 'preparing' | 'recording' | 'paused';
+  recordingElapsedLabel: string;
 };
 
 type DragState = {
@@ -12,7 +19,18 @@ type DragState = {
   offsetY: number;
 } | null;
 
-function FloatingControlBar({ onOpenSettings, onToggleRecording, recordingStatus }: FloatingControlBarProps) {
+function FloatingControlBar({
+  onOpenSettings,
+  onEnterPreparing,
+  onCancelPreparing,
+  onStartRecording,
+  onPauseRecording,
+  onResumeRecording,
+  onStopRecording,
+  onToggleTeleprompter,
+  recordingStatus,
+  recordingElapsedLabel,
+}: FloatingControlBarProps) {
   const [position, setPosition] = useState({ x: 84, y: 140 });
   const dragStateRef = useRef<DragState>(null);
 
@@ -60,24 +78,63 @@ function FloatingControlBar({ onOpenSettings, onToggleRecording, recordingStatus
       style={{ left: `${position.x}px`, top: `${position.y}px` }}
       onPointerDown={handlePointerDown}
     >
-      <button type="button" className="floating-controls__button" onClick={onOpenSettings}>
-        {'\u8bbe\u7f6e'}
-      </button>
-      <button type="button" className="floating-controls__button" onClick={() => undefined}>
-        {'\u63d0\u8bcd\u5668'}
-      </button>
-      <button
-        type="button"
-        className={`floating-controls__button floating-controls__button--record${recordingStatus === 'recording' ? ' floating-controls__button--recording' : ''}`}
-        onClick={onToggleRecording}
-        disabled={recordingStatus === 'stopping'}
-      >
-        {recordingStatus === 'recording'
-          ? '\u505c\u6b62'
-          : recordingStatus === 'stopping'
-            ? '\u5bfc\u51fa\u4e2d'
-            : '\u5f55\u5236'}
-      </button>
+      {recordingStatus === 'idle' ? (
+        <>
+          <button type="button" className="floating-controls__button" onClick={onOpenSettings}>
+            {'\u8bbe\u7f6e'}
+          </button>
+          <button type="button" className="floating-controls__button" onClick={onToggleTeleprompter}>
+            {'\u63d0\u8bcd\u5668'}
+          </button>
+          <button type="button" className="floating-controls__button floating-controls__button--record" onClick={onEnterPreparing}>
+            {'\u5f55\u5236'}
+          </button>
+        </>
+      ) : null}
+
+      {recordingStatus === 'preparing' ? (
+        <>
+          <button type="button" className="floating-controls__button" onClick={onToggleTeleprompter}>
+            {'\u63d0\u8bcd\u5668'}
+          </button>
+          <button type="button" className="floating-controls__button" onClick={onCancelPreparing}>
+            {'\u53d6\u6d88'}
+          </button>
+          <button type="button" className="floating-controls__button floating-controls__button--start" onClick={onStartRecording}>
+            {'\u5f00\u59cb\u5f55\u5236'}
+          </button>
+        </>
+      ) : null}
+
+      {recordingStatus === 'recording' ? (
+        <>
+          <button type="button" className="floating-controls__button" onClick={onToggleTeleprompter}>
+            {'\u63d0\u8bcd\u5668'}
+          </button>
+          <button type="button" className="floating-controls__button floating-controls__button--pause" onClick={onPauseRecording}>
+            {'\u6682\u505c'}
+          </button>
+          <button type="button" className="floating-controls__button floating-controls__button--stop" onClick={onStopRecording}>
+            {'\u505c\u6b62'}
+          </button>
+          <span className="floating-controls__timer"><span />{recordingElapsedLabel}</span>
+        </>
+      ) : null}
+
+      {recordingStatus === 'paused' ? (
+        <>
+          <button type="button" className="floating-controls__button" onClick={onToggleTeleprompter}>
+            {'\u63d0\u8bcd\u5668'}
+          </button>
+          <button type="button" className="floating-controls__button floating-controls__button--start" onClick={onResumeRecording}>
+            {'\u7ee7\u7eed'}
+          </button>
+          <button type="button" className="floating-controls__button floating-controls__button--stop" onClick={onStopRecording}>
+            {'\u505c\u6b62'}
+          </button>
+          <span className="floating-controls__timer floating-controls__timer--paused"><span />{recordingElapsedLabel}</span>
+        </>
+      ) : null}
     </div>
   );
 }

@@ -43,18 +43,28 @@ type WhiteboardPageProps = {
 
 type ElementScopeType = 'slide' | 'freeboard';
 
-type ElementsHistoryEntry = {
+type ScopeHistoryEntry = {
+  kind: 'scope';
   scopeType: ElementScopeType;
   scopeId: string | null;
   elements: BoardElement[];
 };
+
+type BoardHistoryEntry = {
+  kind: 'board';
+  activeScopeId: string | null;
+  slides: Slide[];
+  freeboardElements: BoardElement[];
+};
+
+type ElementsHistoryEntry = ScopeHistoryEntry | BoardHistoryEntry;
 
 type ElementsHistory = {
   past: ElementsHistoryEntry[];
   present: BoardElement[];
   future: ElementsHistoryEntry[];
 };
-type RecordingStatus = 'idle' | 'recording' | 'stopping';
+type RecordingStatus = 'idle' | 'preparing' | 'recording' | 'paused';
 
 type RecordingSnapshot = {
   frame: SlideFrame;
@@ -134,6 +144,8 @@ function WhiteboardPage({
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>('idle');
   const [recordingFrame, setRecordingFrame] = useState<SlideFrame | null>(null);
   const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
+  const [isTeleprompterOpen, setIsTeleprompterOpen] = useState(false);
   const recordingRuntimeRef = useRef<RecordingRuntime | null>(null);
   const recordingRenderStateRef = useRef<RecordingRenderState | null>(null);
   const previousActiveSlideIdRef = useRef<string | null>(activeSlideId);
@@ -143,8 +155,47 @@ function WhiteboardPage({
   const recordingVisualSettingsRef = useRef(recordingVisualSettings);
   const recordingPointerRef = useRef<RecordingPointerState | null>(null);
   const cameraRecordingVideoRef = useRef<HTMLVideoElement | null>(null);
+  const recordingStartedAtRef = useRef<number | null>(null);
+  const recordingAccumulatedMsRef = useRef(0);
+  const recordingTimerRef = useRef<number | null>(null);
 
   const elements = history.present;
+  const clearRecordingTimer = useCallback(() => {
+    if (recordingTimerRef.current !== null) {
+      window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  }, []);
+
+  const startRecordingTimer = useCallback(() => {
+    clearRecordingTimer();
+    recordingStartedAtRef.current = performance.now();
+    recordingTimerRef.current = window.setInterval(() => {
+      if (recordingStartedAtRef.current === null) {
+        return;
+      }
+
+      setRecordingElapsedMs(recordingAccumulatedMsRef.current + performance.now() - recordingStartedAtRef.current);
+    }, 250);
+  }, [clearRecordingTimer]);
+
+  const freezeRecordingTimer = useCallback(() => {
+    if (recordingStartedAtRef.current !== null) {
+      recordingAccumulatedMsRef.current += performance.now() - recordingStartedAtRef.current;
+      recordingStartedAtRef.current = null;
+    }
+
+    clearRecordingTimer();
+    setRecordingElapsedMs(recordingAccumulatedMsRef.current);
+  }, [clearRecordingTimer]);
+
+  const resetRecordingTimer = useCallback(() => {
+    clearRecordingTimer();
+    recordingStartedAtRef.current = null;
+    recordingAccumulatedMsRef.current = 0;
+    setRecordingElapsedMs(0);
+  }, [clearRecordingTimer]);
+
   useEffect(() => {
     cameraSettingsRef.current = cameraSettings;
   }, [cameraSettings]);
@@ -173,6 +224,8 @@ function WhiteboardPage({
     };
   }, [cameraStream]);
 
+  useEffect(() => () => clearRecordingTimer(), [clearRecordingTimer]);
+
   useEffect(() => {
     setSlides((current) => reflowSlideFrames(current, slideAspectRatio));
   }, [slideAspectRatio]);
@@ -197,6 +250,16 @@ function WhiteboardPage({
 
       return slides.find((slide) => slide.id === scopeId)?.elements ?? [];
     },
+    [freeboardElements, slides]
+  );
+
+  const getCurrentBoardHistoryEntry = useCallback(
+    (present: BoardElement[]) =>
+      createBoardHistoryEntry(
+        activeScopeRef.current,
+        materializeActiveSlideElements(slides, activeScopeRef.current, present),
+        activeScopeRef.current === null ? present : freeboardElements
+      ),
     [freeboardElements, slides]
   );
 
@@ -244,13 +307,90 @@ function WhiteboardPage({
         }
 
         return {
-          past: [...current.past, createHistoryEntry(scopeId, previous)],
+          past: [...current.past, createScopeHistoryEntry(scopeId, previous)],
           present: cloneElements(next),
           future: [],
         };
       });
     },
     [writeScopeElements]
+  );
+
+  const onCommitElementOwnerMigration = useCallback(
+    (previous: BoardElement[], next: BoardElement[], ownerMap: Record<string, string | null>) => {
+      const scopeId = activeScopeRef.current;
+      const migratingIds = new Set(Object.keys(ownerMap));
+
+      if (migratingIds.size === 0) {
+        onCommitElementsChange(previous, next);
+        return;
+      }
+
+      const previousSlides = materializeActiveSlideElements(slides, scopeId, previous);
+      const previousFreeboardElements = scopeId === null ? cloneElements(previous) : cloneElements(freeboardElements);
+      const sourceSlides = materializeActiveSlideElements(slides, scopeId, next);
+      const sourceFreeboardElements = scopeId === null ? cloneElements(next) : cloneElements(freeboardElements);
+      const movedElements = new Map(
+        next.filter((element) => migratingIds.has(element.id)).map((element) => [element.id, structuredClone(element)])
+      );
+
+      const nextSlides = sourceSlides.map((slide) => {
+        const retainedElements = slide.elements
+          .filter((element) => !migratingIds.has(element.id) || ownerMap[element.id] === slide.id)
+          .map((element) => movedElements.get(element.id) ?? element);
+        const incomingElements = next.filter(
+          (element) =>
+            migratingIds.has(element.id) &&
+            ownerMap[element.id] === slide.id &&
+            !slide.elements.some((slideElement) => slideElement.id === element.id)
+        );
+
+        return {
+          ...slide,
+          elements: cloneElements([...retainedElements, ...incomingElements]),
+        };
+      });
+
+      const nextFreeboardElements = cloneElements([
+        ...sourceFreeboardElements
+          .filter((element) => !migratingIds.has(element.id) || ownerMap[element.id] === null)
+          .map((element) => movedElements.get(element.id) ?? element),
+        ...next.filter(
+          (element) =>
+            migratingIds.has(element.id) &&
+            ownerMap[element.id] === null &&
+            !sourceFreeboardElements.some((freeboardElement) => freeboardElement.id === element.id)
+        ),
+      ]);
+
+      const firstSelectedOwner = selectedIds.map((id) => ownerMap[id]).find((owner) => owner !== undefined);
+      const nextScopeId = firstSelectedOwner !== undefined ? firstSelectedOwner : scopeId;
+      const nextPresent = getScopeElementsFromCollections(nextSlides, nextFreeboardElements, nextScopeId);
+      const previousEntry = createBoardHistoryEntry(scopeId, previousSlides, previousFreeboardElements);
+
+      setSlides(nextSlides);
+      setFreeboardElements(nextFreeboardElements);
+      activeScopeRef.current = nextScopeId;
+      setActiveSlideId(nextScopeId);
+      setTextEditor(null);
+      setHistory((current) => {
+        const nextEntry = createBoardHistoryEntry(nextScopeId, nextSlides, nextFreeboardElements);
+
+        if (serializeBoardHistoryEntry(previousEntry) === serializeBoardHistoryEntry(nextEntry)) {
+          return {
+            ...current,
+            present: cloneElements(nextPresent),
+          };
+        }
+
+        return {
+          past: [...current.past, previousEntry],
+          present: cloneElements(nextPresent),
+          future: [],
+        };
+      });
+    },
+    [freeboardElements, onCommitElementsChange, selectedIds, slides]
   );
   const undo = useCallback(() => {
     setHistory((current) => {
@@ -260,19 +400,37 @@ function WhiteboardPage({
 
       const currentScopeId = activeScopeRef.current;
       const previous = current.past[current.past.length - 1];
+      setTextEditor(null);
+
+      if (previous.kind === 'board') {
+        const currentBoard = getCurrentBoardHistoryEntry(current.present);
+        const restoredSlides = cloneSlides(previous.slides);
+        const restoredFreeboardElements = cloneElements(previous.freeboardElements);
+        setSlides(restoredSlides);
+        setFreeboardElements(restoredFreeboardElements);
+        activeScopeRef.current = previous.activeScopeId;
+        setActiveSlideId(previous.activeScopeId);
+        setSelectedIds((currentSelection) => filterSelectionForBoard(currentSelection, restoredSlides, restoredFreeboardElements));
+
+        return {
+          past: current.past.slice(0, -1),
+          present: cloneElements(getScopeElementsFromCollections(restoredSlides, restoredFreeboardElements, previous.activeScopeId)),
+          future: [currentBoard, ...current.future],
+        };
+      }
+
       writeScopeElements(previous.scopeId, previous.elements);
       activeScopeRef.current = previous.scopeId;
       setActiveSlideId(previous.scopeId);
-      setTextEditor(null);
       setSelectedIds((currentSelection) => (currentScopeId === previous.scopeId ? currentSelection : []));
 
       return {
         past: current.past.slice(0, -1),
         present: cloneElements(previous.elements),
-        future: [createHistoryEntry(currentScopeId, current.present), ...current.future],
+        future: [createScopeHistoryEntry(currentScopeId, current.present), ...current.future],
       };
     });
-  }, [writeScopeElements]);
+  }, [getCurrentBoardHistoryEntry, writeScopeElements]);
 
   const redo = useCallback(() => {
     setHistory((current) => {
@@ -282,26 +440,46 @@ function WhiteboardPage({
 
       const currentScopeId = activeScopeRef.current;
       const next = current.future[0];
+      setTextEditor(null);
+
+      if (next.kind === 'board') {
+        const currentBoard = getCurrentBoardHistoryEntry(current.present);
+        const restoredSlides = cloneSlides(next.slides);
+        const restoredFreeboardElements = cloneElements(next.freeboardElements);
+        setSlides(restoredSlides);
+        setFreeboardElements(restoredFreeboardElements);
+        activeScopeRef.current = next.activeScopeId;
+        setActiveSlideId(next.activeScopeId);
+        setSelectedIds((currentSelection) => filterSelectionForBoard(currentSelection, restoredSlides, restoredFreeboardElements));
+
+        return {
+          past: [...current.past, currentBoard],
+          present: cloneElements(getScopeElementsFromCollections(restoredSlides, restoredFreeboardElements, next.activeScopeId)),
+          future: current.future.slice(1),
+        };
+      }
+
       writeScopeElements(next.scopeId, next.elements);
       activeScopeRef.current = next.scopeId;
       setActiveSlideId(next.scopeId);
-      setTextEditor(null);
       setSelectedIds((currentSelection) => (currentScopeId === next.scopeId ? currentSelection : []));
 
       return {
-        past: [...current.past, createHistoryEntry(currentScopeId, current.present)],
+        past: [...current.past, createScopeHistoryEntry(currentScopeId, current.present)],
         present: cloneElements(next.elements),
         future: current.future.slice(1),
       };
     });
-  }, [writeScopeElements]);
+  }, [getCurrentBoardHistoryEntry, writeScopeElements]);
 
   useEffect(() => {
-    setSelectedIds((current) => current.filter((id) => elements.some((element) => element.id === id)));
+    const currentSlides = materializeActiveSlideElements(slides, activeScopeRef.current, elements);
+    const currentFreeboardElements = activeScopeRef.current === null ? elements : freeboardElements;
+    setSelectedIds((current) => filterSelectionForBoard(current, currentSlides, currentFreeboardElements));
     setTextEditor((current) =>
       current && elements.some((element) => element.id === current.elementId && element.type === 'text') ? current : null
     );
-  }, [elements]);
+  }, [elements, freeboardElements, slides]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -437,6 +615,10 @@ function WhiteboardPage({
   );
 
   const stageFreeboardElements = activeSlideId === null ? elements : freeboardElements;
+  const allBoardElements = useMemo(
+    () => [...stageFreeboardElements, ...stageSlides.flatMap((slide) => slide.elements)],
+    [stageFreeboardElements, stageSlides]
+  );
 
   const recordingRenderState = useMemo<RecordingRenderState>(
     () => {
@@ -722,8 +904,8 @@ function WhiteboardPage({
   };
 
   const selectedElements = useMemo(
-    () => elements.filter((element) => selectedIds.includes(element.id)),
-    [elements, selectedIds]
+    () => allBoardElements.filter((element) => selectedIds.includes(element.id)),
+    [allBoardElements, selectedIds]
   );
 
   const selectedTextElement = useMemo(() => {
@@ -731,17 +913,17 @@ function WhiteboardPage({
       return null;
     }
 
-    const element = elements.find((item) => item.id === selectedIds[0]);
+    const element = allBoardElements.find((item) => item.id === selectedIds[0]);
     return element?.type === 'text' ? element : null;
-  }, [elements, selectedIds]);
+  }, [allBoardElements, selectedIds]);
 
   const selectedColorElements = useMemo(
     () =>
-      elements.filter(
+      allBoardElements.filter(
         (element): element is Extract<BoardElement, { type: 'draw' | 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text' }> =>
           selectedIds.includes(element.id) && isColorEditableElement(element)
       ),
-    [elements, selectedIds]
+    [allBoardElements, selectedIds]
   );
 
   const selectedColorStyle = useMemo(() => {
@@ -805,6 +987,38 @@ function WhiteboardPage({
     }, null);
   }, [selectedElements]);
 
+  const getCurrentRecordingFrame = useCallback(() => {
+    const rect = pageRef.current?.getBoundingClientRect();
+    const currentSlides = stageSlides;
+    const activeSlide = activeSlideId
+      ? currentSlides.find((slide) => slide.id === activeSlideId) ?? currentSlides[0] ?? null
+      : currentSlides[0] ?? null;
+
+    return currentSlides.length > 0 && activeSlide
+      ? {
+          frame: activeSlide.frame,
+          mode: 'slide' as const,
+          slideId: activeSlide.id,
+        }
+      : {
+          frame: getDefaultRecordingFrame(rect, viewport, slideAspectRatio),
+          mode: 'freeboard' as const,
+          slideId: null,
+        };
+  }, [activeSlideId, slideAspectRatio, stageSlides, viewport]);
+
+  const enterRecordingPreparing = useCallback(() => {
+    const target = getCurrentRecordingFrame();
+    setRecordingError(null);
+    setRecordingFrame(target.mode === 'freeboard' ? target.frame : null);
+    setRecordingStatus('preparing');
+  }, [getCurrentRecordingFrame]);
+
+  const cancelRecordingPreparing = useCallback(() => {
+    setRecordingFrame(null);
+    setRecordingStatus('idle');
+  }, []);
+
   const handleToolbarTextStyleChange = (patch: Partial<TextStyle>) => {
     setTextDefaults((current) => ({ ...current, ...patch }));
 
@@ -831,22 +1045,42 @@ function WhiteboardPage({
       return;
     }
 
-    setRecordingStatus('stopping');
+    freezeRecordingTimer();
     runtime.recorder.stop();
-  }, []);
+  }, [freezeRecordingTimer]);
+
+  const pauseRecording = useCallback(() => {
+    const runtime = recordingRuntimeRef.current;
+    if (!runtime || runtime.recorder.state !== 'recording') {
+      return;
+    }
+
+    runtime.recorder.pause();
+    freezeRecordingTimer();
+    setRecordingStatus('paused');
+  }, [freezeRecordingTimer]);
+
+  const resumeRecording = useCallback(() => {
+    const runtime = recordingRuntimeRef.current;
+    if (!runtime || runtime.recorder.state !== 'paused') {
+      return;
+    }
+
+    runtime.recorder.resume();
+    startRecordingTimer();
+    setRecordingStatus('recording');
+  }, [startRecordingTimer]);
 
   const startRecording = useCallback(() => {
     if (recordingRuntimeRef.current) {
       return;
     }
 
-    const rect = pageRef.current?.getBoundingClientRect();
+    const target = getCurrentRecordingFrame();
     const currentSlides = stageSlides;
-    const activeSlide = activeSlideId
-      ? currentSlides.find((slide) => slide.id === activeSlideId) ?? currentSlides[0] ?? null
-      : currentSlides[0] ?? null;
-    const recordingSlideId = activeSlide?.id ?? null;
-    const mode = currentSlides.length > 0 && activeSlide ? 'slide' : 'freeboard';
+    const activeSlide = target.slideId ? currentSlides.find((slide) => slide.id === target.slideId) ?? null : null;
+    const recordingSlideId = target.slideId;
+    const mode = target.mode;
     if (mode === 'slide' && !activeSlideId && recordingSlideId) {
       activeScopeRef.current = recordingSlideId;
       setActiveSlideId(recordingSlideId);
@@ -857,9 +1091,7 @@ function WhiteboardPage({
         present: cloneElements(activeSlide!.elements),
       }));
     }
-    const frame = mode === 'slide'
-      ? activeSlide!.frame
-      : getDefaultRecordingFrame(rect, viewport, slideAspectRatio);
+    const frame = target.frame;
     const outputSize = getRecordingOutputSize(frame);
     const canvas = document.createElement('canvas');
     canvas.width = outputSize.width;
@@ -867,11 +1099,15 @@ function WhiteboardPage({
     const context = canvas.getContext('2d');
 
     if (!context) {
+      setRecordingStatus('idle');
+      setRecordingFrame(null);
       setRecordingError('Canvas recording is not available in this browser.');
       return;
     }
 
     if (typeof canvas.captureStream !== 'function' || typeof MediaRecorder === 'undefined') {
+      setRecordingStatus('idle');
+      setRecordingFrame(null);
       setRecordingError('MediaRecorder is not available in this browser.');
       return;
     }
@@ -888,6 +1124,8 @@ function WhiteboardPage({
       recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
     } catch {
       stream.getVideoTracks().forEach((track) => track.stop());
+      setRecordingStatus('idle');
+      setRecordingFrame(null);
       setRecordingError('Recording could not be started in this browser.');
       return;
     }
@@ -934,6 +1172,7 @@ function WhiteboardPage({
       recordingRuntimeRef.current = null;
       setRecordingFrame(null);
       setRecordingStatus('idle');
+      resetRecordingTimer();
 
       if (chunks.length === 0) {
         setRecordingError('No video data was recorded.');
@@ -969,6 +1208,9 @@ function WhiteboardPage({
 
     try {
       recorder.start(250);
+      recordingAccumulatedMsRef.current = 0;
+      setRecordingElapsedMs(0);
+      startRecordingTimer();
       setRecordingStatus('recording');
     } catch {
       if (runtime.animationFrameId !== null) {
@@ -977,20 +1219,10 @@ function WhiteboardPage({
       runtime.stream.getVideoTracks().forEach((track) => track.stop());
       recordingRuntimeRef.current = null;
       setRecordingFrame(null);
+      resetRecordingTimer();
       setRecordingError('Recording could not be started in this browser.');
     }
-  }, [activeSlideId, elements, microphoneStream, slideAspectRatio, stageSlides, viewport]);
-
-  const handleToggleRecording = useCallback(() => {
-    if (recordingStatus === 'recording') {
-      stopRecording();
-      return;
-    }
-
-    if (recordingStatus === 'idle') {
-      startRecording();
-    }
-  }, [recordingStatus, startRecording, stopRecording]);
+  }, [activeSlideId, elements, getCurrentRecordingFrame, microphoneStream, resetRecordingTimer, stageSlides, startRecordingTimer]);
   const handleToolbarColorChange = (patch: Partial<ColorStyle>) => {
     if (!patch.color) {
       return;
@@ -1031,6 +1263,8 @@ function WhiteboardPage({
     onCommitElementsChange(elements, nextElements);
   };
 
+  const recordingElapsedLabel = formatRecordingElapsed(recordingElapsedMs);
+
   return (
     <div ref={pageRef} className="board-page">
       <TopToolbar
@@ -1050,9 +1284,27 @@ function WhiteboardPage({
       />
       <FloatingControlBar
         onOpenSettings={onOpenSettings}
-        onToggleRecording={handleToggleRecording}
+        onEnterPreparing={enterRecordingPreparing}
+        onCancelPreparing={cancelRecordingPreparing}
+        onStartRecording={startRecording}
+        onPauseRecording={pauseRecording}
+        onResumeRecording={resumeRecording}
+        onStopRecording={stopRecording}
+        onToggleTeleprompter={() => setIsTeleprompterOpen((current) => !current)}
         recordingStatus={recordingStatus}
+        recordingElapsedLabel={recordingElapsedLabel}
       />
+      {isTeleprompterOpen ? (
+        <div className="board-teleprompter" role="dialog" aria-label="Teleprompter">
+          <div className="board-teleprompter__header">
+            <span>{'\u63d0\u8bcd\u5668'}</span>
+            <button type="button" onClick={() => setIsTeleprompterOpen(false)} aria-label="Close teleprompter">
+              ×
+            </button>
+          </div>
+          <div className="board-teleprompter__body">{'\u63d0\u8bcd\u5668\u5360\u4f4d\uff0c\u4e0d\u4f1a\u8fdb\u5165\u5f55\u5236\u753b\u9762\u3002'}</div>
+        </div>
+      ) : null}
       <video
         ref={cameraRecordingVideoRef}
         className="board-camera-capture-video"
@@ -1068,7 +1320,8 @@ function WhiteboardPage({
           slides={stageSlides}
           freeboardElements={stageFreeboardElements}
           activeSlideId={activeSlideId}
-          recordingFrame={recordingStatus !== 'idle' && stageSlides.length === 0 ? recordingFrame : null}
+          recordingFrame={recordingFrame}
+          recordingOverlayStatus={recordingStatus}
           cameraSettings={cameraSettings}
           cameraStream={cameraStream}
           onCameraSettingsChange={onCameraSettingsChange}
@@ -1084,6 +1337,7 @@ function WhiteboardPage({
           onActiveSlideChange={activateScope}
           onActiveToolChange={setActiveTool}
           onCommitElementsChange={onCommitElementsChange}
+          onCommitElementOwnerMigration={onCommitElementOwnerMigration}
           getScopeElements={getScopeElements}
           onElementsChange={onElementsChange}
           onSelectedIdsChange={setSelectedIds}
@@ -2165,6 +2419,13 @@ function zoomViewportAtScreenPoint(viewport: ViewportState, nextZoomValue: numbe
   };
 }
 
+function formatRecordingElapsed(milliseconds: number) {
+  const totalSeconds = Math.floor(milliseconds / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
 function reorderElementsByLayerAction(elements: BoardElement[], selectedIds: string[], action: LayerAction) {
   const selectedSet = new Set(selectedIds);
   const selectedElements = elements.filter((element) => selectedSet.has(element.id));
@@ -2237,23 +2498,69 @@ function cloneElements(elements: BoardElement[]) {
   return structuredClone(elements);
 }
 
+function cloneSlides(slides: Slide[]) {
+  return slides.map((slide) => ({
+    ...slide,
+    frame: { ...slide.frame },
+    elements: cloneElements(slide.elements),
+  }));
+}
+
 function getScopeType(scopeId: string | null): ElementScopeType {
   return scopeId === null ? 'freeboard' : 'slide';
 }
 
-function createHistoryEntry(scopeId: string | null, elements: BoardElement[]): ElementsHistoryEntry {
+function createScopeHistoryEntry(scopeId: string | null, elements: BoardElement[]): ScopeHistoryEntry {
   return {
+    kind: 'scope',
     scopeType: getScopeType(scopeId),
     scopeId,
     elements: cloneElements(elements),
   };
 }
 
+function createBoardHistoryEntry(
+  activeScopeId: string | null,
+  slides: Slide[],
+  freeboardElements: BoardElement[]
+): BoardHistoryEntry {
+  return {
+    kind: 'board',
+    activeScopeId,
+    slides: cloneSlides(slides),
+    freeboardElements: cloneElements(freeboardElements),
+  };
+}
+
+function getScopeElementsFromCollections(slides: Slide[], freeboardElements: BoardElement[], scopeId: string | null) {
+  if (scopeId === null) {
+    return freeboardElements;
+  }
+
+  return slides.find((slide) => slide.id === scopeId)?.elements ?? [];
+}
+
+function filterSelectionForBoard(selectedIds: string[], slides: Slide[], freeboardElements: BoardElement[]) {
+  const existingIds = new Set([
+    ...freeboardElements.map((element) => element.id),
+    ...slides.flatMap((slide) => slide.elements.map((element) => element.id)),
+  ]);
+  return selectedIds.filter((id) => existingIds.has(id));
+}
+
+function serializeBoardHistoryEntry(entry: BoardHistoryEntry) {
+  return JSON.stringify({
+    activeScopeId: entry.activeScopeId,
+    slides: entry.slides,
+    freeboardElements: entry.freeboardElements,
+  });
+}
+
 function pruneHistoryScope(history: ElementsHistory, deletedScopeId: string): ElementsHistory {
   return {
     ...history,
-    past: history.past.filter((entry) => entry.scopeId !== deletedScopeId),
-    future: history.future.filter((entry) => entry.scopeId !== deletedScopeId),
+    past: history.past.filter((entry) => entry.kind === 'board' || entry.scopeId !== deletedScopeId),
+    future: history.future.filter((entry) => entry.kind === 'board' || entry.scopeId !== deletedScopeId),
   };
 }
 

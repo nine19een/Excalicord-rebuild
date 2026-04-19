@@ -44,6 +44,7 @@ type WhiteboardStageProps = {
   freeboardElements: BoardElement[];
   activeSlideId: string | null;
   recordingFrame: SlideFrame | null;
+  recordingOverlayStatus: 'idle' | 'preparing' | 'recording' | 'paused';
   cameraSettings: CameraSettings;
   cameraStream: MediaStream | null;
   onCameraSettingsChange: (patch: Partial<CameraSettings>) => void;
@@ -57,6 +58,11 @@ type WhiteboardStageProps = {
   onActiveSlideChange: (slideId: string | null) => void;
   onActiveToolChange: (tool: ToolType) => void;
   onCommitElementsChange: (previous: BoardElement[], next: BoardElement[]) => void;
+  onCommitElementOwnerMigration: (
+    previous: BoardElement[],
+    next: BoardElement[],
+    ownerMap: Record<string, string | null>
+  ) => void;
   getScopeElements: (slideId: string | null) => BoardElement[];
   onElementsChange: React.Dispatch<React.SetStateAction<BoardElement[]>>;
   onSelectedIdsChange: React.Dispatch<React.SetStateAction<string[]>>;
@@ -65,6 +71,8 @@ type WhiteboardStageProps = {
 };
 
 type ElementSnapshot = Record<string, BoardElement>;
+const OWNER_ENTER_THRESHOLD = 2 / 3;
+const OWNER_EXIT_THRESHOLD = 1 / 3;
 
 function WhiteboardStage({
   activeTool,
@@ -73,6 +81,7 @@ function WhiteboardStage({
   freeboardElements,
   activeSlideId,
   recordingFrame,
+  recordingOverlayStatus,
   cameraSettings,
   cameraStream,
   onCameraSettingsChange,
@@ -86,6 +95,7 @@ function WhiteboardStage({
   onActiveSlideChange,
   onActiveToolChange,
   onCommitElementsChange,
+  onCommitElementOwnerMigration,
   getScopeElements,
   onElementsChange,
   onSelectedIdsChange,
@@ -104,6 +114,8 @@ function WhiteboardStage({
   const [editorHeight, setEditorHeight] = useState<number | null>(null);
   const [hoverCursor, setHoverCursor] = useState<string | null>(null);
   const [isCameraDragging, setIsCameraDragging] = useState(false);
+  const [provisionalOwners, setProvisionalOwners] = useState<Record<string, string | null>>({});
+  const provisionalOwnersRef = useRef<Record<string, string | null>>({});
 
   const selectedSingleElement =
     selectedIds.length === 1 ? elements.find((element) => element.id === selectedIds[0]) ?? null : null;
@@ -203,6 +215,11 @@ function WhiteboardStage({
     return elements.filter((element) => rectContainsBounds(selectionBox, getElementBounds(element)));
   }, [elements, selectionBox]);
 
+  const stagedCollections = useMemo(
+    () => distributeElementsByOwner(slides, freeboardElements, elements, provisionalOwners),
+    [elements, freeboardElements, provisionalOwners, slides]
+  );
+
   const multiSelectionHighlightElements = useMemo(() => {
     if (isMarqueeSelecting || isTransformingSelection || selectedIds.length <= 1) {
       return [];
@@ -235,7 +252,28 @@ function WhiteboardStage({
     return null;
   };
 
+  const updateProvisionalOwners = (nextElements: BoardElement[], targetIds: string[]) => {
+    const targetSet = new Set(targetIds);
+    const nextOwners = nextElements.reduce<Record<string, string | null>>((owners, element) => {
+      if (!targetSet.has(element.id)) {
+        return owners;
+      }
+
+      owners[element.id] = resolveElementOwner(element, slides, provisionalOwnersRef.current[element.id] ?? activeSlideId);
+      return owners;
+    }, {});
+
+    provisionalOwnersRef.current = nextOwners;
+    setProvisionalOwners(nextOwners);
+  };
+
+  const clearProvisionalOwners = () => {
+    provisionalOwnersRef.current = {};
+    setProvisionalOwners({});
+  };
+
   const activeSlide = activeSlideId ? slides.find((slide) => slide.id === activeSlideId) ?? null : null;
+  const recordingOverlayFrame = recordingOverlayStatus === 'idle' ? null : activeSlide?.frame ?? recordingFrame;
   const cameraFrame = activeSlide?.frame ?? recordingFrame ?? getVisibleWorldFrame(surfaceRef.current, viewport);
   const cameraRect = cameraFrame ? getCameraWorldRect(cameraSettings, cameraFrame) : null;
   const cameraOverlayStyle =
@@ -729,12 +767,13 @@ function WhiteboardStage({
       case 'moving': {
         const dx = point.x - interaction.startPoint.x;
         const dy = point.y - interaction.startPoint.y;
-        onElementsChange((current) =>
-          current.map((element) => {
-            const snapshot = interaction.snapshot[element.id];
-            return snapshot ? offsetElement(snapshot, dx, dy) : element;
-          })
-        );
+        const targetIds = Object.keys(interaction.snapshot);
+        const nextElements = elements.map((element) => {
+          const snapshot = interaction.snapshot[element.id];
+          return snapshot ? offsetElement(snapshot, dx, dy) : element;
+        });
+        onElementsChange(nextElements);
+        updateProvisionalOwners(nextElements, targetIds);
         break;
       }
       case 'selecting':
@@ -748,13 +787,14 @@ function WhiteboardStage({
         });
         break;
       case 'resizing':
-        onElementsChange((current) => {
+        {
+        const nextElements = (() => {
           if (!interaction.selectionBounds) {
-            return current;
+            return elements;
           }
 
           if (!Array.isArray(interaction.targetIds) || interaction.targetIds.length === 0) {
-            return current;
+            return elements;
           }
 
           if (interaction.targetIds.length > 1) {
@@ -763,13 +803,13 @@ function WhiteboardStage({
               : getResizedBounds(interaction.selectionBounds, interaction.handle, point);
             const snapshotMap = interaction.snapshot as ElementSnapshot;
 
-            return current.map((element) => {
+            return elements.map((element) => {
               const snapshot = snapshotMap[element.id];
               return snapshot ? scaleElementToBounds(snapshot, interaction.selectionBounds!, nextBounds) : element;
             });
           }
 
-          return current.map((element) => {
+          return elements.map((element) => {
             if (element.id !== interaction.elementId) {
               return element;
             }
@@ -784,7 +824,10 @@ function WhiteboardStage({
             const keepAspectRatio = event.shiftKey && (element.type === 'image' || element.type === 'draw');
             return resizeBoxElement(snapshot, interaction.handle, point, keepSquare, keepAspectRatio);
           });
-        });
+        })();
+        onElementsChange(nextElements);
+        updateProvisionalOwners(nextElements, interaction.targetIds);
+        }
         break;
       case 'erasing':
         eraseAtPoint(point);
@@ -813,7 +856,12 @@ function WhiteboardStage({
     }
 
     if (interaction.type === 'moving' || interaction.type === 'resizing') {
-      onCommitElementsChange(interaction.initialElements, elements);
+      const ownerMap = provisionalOwnersRef.current;
+      if (Object.keys(ownerMap).length > 0) {
+        onCommitElementOwnerMigration(interaction.initialElements, elements, ownerMap);
+      } else {
+        onCommitElementsChange(interaction.initialElements, elements);
+      }
     }
 
     if (interaction.type === 'selecting') {
@@ -822,6 +870,7 @@ function WhiteboardStage({
     }
 
     setInteraction(null);
+    clearProvisionalOwners();
     onRecordingPointerChange({ point: getWorldPoint(event), pressed: false, visible: true });
   };
 
@@ -882,6 +931,12 @@ function WhiteboardStage({
                 <rect key={`${slide.id}-mask`} {...slide.frame} fill="black" />
               ))}
             </mask>
+            {recordingOverlayFrame ? (
+              <mask id="recording-overlay-mask" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000">
+                <rect x="-100000" y="-100000" width="200000" height="200000" fill="white" />
+                <rect {...recordingOverlayFrame} fill="black" />
+              </mask>
+            ) : null}
           </defs>
 
           {slides.map((slide) => (
@@ -901,7 +956,7 @@ function WhiteboardStage({
             </g>
           ))}
 
-          {slides.map((slide) => (
+          {stagedCollections.slides.map((slide) => (
             <g key={`${slide.id}-elements`} clipPath={`url(#${getSlideClipId(slide.id)})`}>
               {slide.elements.map((element) =>
                 element.id === activeSlideDrawingElement?.id || (editingElement?.type === 'text' && element.id === editingElement.id)
@@ -913,15 +968,29 @@ function WhiteboardStage({
 
           {activeSlideDrawingElement ? renderElement(activeSlideDrawingElement) : null}
 
-          {recordingFrame ? (
-            <rect className="board-recording-frame" {...recordingFrame} />
-          ) : null}
-
           <g mask="url(#freeboard-slide-mask)">
-            {freeboardElements.map((element) =>
+            {stagedCollections.freeboardElements.map((element) =>
               editingElement?.type === 'text' && element.id === editingElement.id ? null : renderElement(element)
             )}
           </g>
+
+          {recordingOverlayFrame ? (
+            <rect
+              className="board-recording-dim"
+              x="-100000"
+              y="-100000"
+              width="200000"
+              height="200000"
+              mask="url(#recording-overlay-mask)"
+            />
+          ) : null}
+
+          {recordingOverlayFrame ? (
+            <rect
+              className={`board-recording-frame board-recording-frame--${recordingOverlayStatus}`}
+              {...getRecordingOutlineFrame(recordingOverlayFrame)}
+            />
+          ) : null}
 
           {selectionBox && (
             <rect
@@ -1072,8 +1141,120 @@ function getCameraWorldRect(settings: CameraSettings, frame: SlideFrame) {
   };
 }
 
+function getRecordingOutlineFrame(frame: SlideFrame) {
+  const offset = 0;
+  return {
+    x: frame.x - offset,
+    y: frame.y - offset,
+    width: frame.width + offset * 2,
+    height: frame.height + offset * 2,
+  };
+}
+
 function clamp01(value: number) {
   return Math.min(1, Math.max(0, value));
+}
+
+function distributeElementsByOwner(
+  slides: Slide[],
+  freeboardElements: BoardElement[],
+  activeElements: BoardElement[],
+  ownerMap: Record<string, string | null>
+) {
+  const migratingIds = new Set(Object.keys(ownerMap));
+
+  if (migratingIds.size === 0) {
+    return { slides, freeboardElements };
+  }
+
+  const migratingElements = new Map(
+    activeElements.filter((element) => migratingIds.has(element.id)).map((element) => [element.id, element])
+  );
+
+  const nextSlides = slides.map((slide) => {
+    const retainedElements = slide.elements
+      .filter((element) => !migratingIds.has(element.id) || ownerMap[element.id] === slide.id)
+      .map((element) => migratingElements.get(element.id) ?? element);
+    const incomingElements = activeElements.filter(
+      (element) =>
+        migratingIds.has(element.id) &&
+        ownerMap[element.id] === slide.id &&
+        !slide.elements.some((slideElement) => slideElement.id === element.id)
+    );
+
+    return {
+      ...slide,
+      elements: [...retainedElements, ...incomingElements],
+    };
+  });
+
+  const retainedFreeboardElements = freeboardElements
+    .filter((element) => !migratingIds.has(element.id) || ownerMap[element.id] === null)
+    .map((element) => migratingElements.get(element.id) ?? element);
+  const incomingFreeboardElements = activeElements.filter(
+    (element) =>
+      migratingIds.has(element.id) &&
+      ownerMap[element.id] === null &&
+      !freeboardElements.some((freeboardElement) => freeboardElement.id === element.id)
+  );
+
+  return {
+    slides: nextSlides,
+    freeboardElements: [...retainedFreeboardElements, ...incomingFreeboardElements],
+  };
+}
+
+function resolveElementOwner(element: BoardElement, slides: Slide[], currentOwner: string | null) {
+  const overlaps = slides
+    .map((slide) => ({
+      slideId: slide.id,
+      ratio: getBoundsOverlapRatio(getElementBounds(element), slide.frame),
+    }))
+    .sort((a, b) => b.ratio - a.ratio);
+  const bestOverlap = overlaps[0] ?? null;
+
+  if (!bestOverlap) {
+    return null;
+  }
+
+  if (currentOwner === null) {
+    return bestOverlap.ratio >= OWNER_ENTER_THRESHOLD ? bestOverlap.slideId : null;
+  }
+
+  const currentOverlap = overlaps.find((overlap) => overlap.slideId === currentOwner)?.ratio ?? 0;
+
+  if (bestOverlap.slideId !== currentOwner && bestOverlap.ratio >= OWNER_ENTER_THRESHOLD) {
+    return bestOverlap.slideId;
+  }
+
+  if (currentOverlap <= OWNER_EXIT_THRESHOLD) {
+    return bestOverlap.ratio >= OWNER_ENTER_THRESHOLD ? bestOverlap.slideId : null;
+  }
+
+  return currentOwner;
+}
+
+function getBoundsOverlapRatio(bounds: ReturnType<typeof normalizeRect>, frame: SlideFrame) {
+  const boundsArea = Math.max(bounds.width * bounds.height, 1);
+  const boundsCenter = {
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2,
+  };
+
+  if (bounds.width === 0 || bounds.height === 0) {
+    return isPointInBounds(boundsCenter, frame) ? 1 : 0;
+  }
+
+  const left = Math.max(bounds.x, frame.x);
+  const top = Math.max(bounds.y, frame.y);
+  const right = Math.min(bounds.x + bounds.width, frame.x + frame.width);
+  const bottom = Math.min(bounds.y + bounds.height, frame.y + frame.height);
+
+  if (right <= left || bottom <= top) {
+    return 0;
+  }
+
+  return ((right - left) * (bottom - top)) / boundsArea;
 }
 
 function getSlideClipId(slideId: string) {

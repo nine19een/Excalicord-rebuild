@@ -21,13 +21,19 @@ export type ViewportState = {
   zoom: number;
 };
 
-export type DragHandle = 'nw' | 'ne' | 'sw' | 'se' | 'start' | 'end';
+export type DragHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'start' | 'end';
 
 export type ColorStyle = {
   color: string;
 };
 
 export type LayerAction = 'bring-forward' | 'send-backward' | 'bring-to-front' | 'send-to-back';
+
+export type ElementTransform = {
+  rotation?: number;
+  flipX?: boolean;
+  flipY?: boolean;
+};
 
 export type TextStyle = {
   fontFamily: string;
@@ -69,14 +75,14 @@ export const TEXT_SIZE_OPTIONS = [16, 20, 24, 28, 32, 40] as const;
 
 export const TEXT_COLOR_OPTIONS = BOARD_COLOR_OPTIONS;
 
-export type StrokeElement = {
+export type StrokeElement = ElementTransform & {
   id: string;
   type: 'draw';
   points: BoardPoint[];
   color: string;
 };
 
-export type RectangleElement = {
+export type RectangleElement = ElementTransform & {
   id: string;
   type: 'rectangle';
   x: number;
@@ -86,7 +92,7 @@ export type RectangleElement = {
   color: string;
 };
 
-export type EllipseElement = {
+export type EllipseElement = ElementTransform & {
   id: string;
   type: 'ellipse';
   x: number;
@@ -96,7 +102,7 @@ export type EllipseElement = {
   color: string;
 };
 
-export type LinearElement = {
+export type LinearElement = ElementTransform & {
   id: string;
   type: 'line' | 'arrow';
   x1: number;
@@ -106,7 +112,7 @@ export type LinearElement = {
   color: string;
 };
 
-export type TextElement = {
+export type TextElement = ElementTransform & {
   id: string;
   type: 'text';
   x: number;
@@ -119,7 +125,7 @@ export type TextElement = {
   color: string;
 };
 
-export type ImageElement = {
+export type ImageElement = ElementTransform & {
   id: string;
   type: 'image';
   x: number;
@@ -202,6 +208,31 @@ export type InteractionState =
         width: number;
         height: number;
       } | null;
+      selectionCenter?: BoardPoint;
+      selectionRotation?: number;
+      currentSelectionBounds?: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      };
+      targetIds: string[];
+    }
+  | {
+      type: 'rotating';
+      pointerId: number;
+      center: BoardPoint;
+      startAngle: number;
+      startRotation: number;
+      currentRotation: number;
+      selectionBounds: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      };
+      snapshot: Record<string, BoardElement>;
+      initialElements: BoardElement[];
       targetIds: string[];
     }
   | {

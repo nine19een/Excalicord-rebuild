@@ -1,6 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FloatingControlBar from './FloatingControlBar';
+import TeleprompterPanel, { DEFAULT_TELEPROMPTER_STATE, type TeleprompterPanelState } from './TeleprompterPanel';
 import TopToolbar from './TopToolbar';
 import WhiteboardStage from './WhiteboardStage';
 import type { CameraSettings, RecordingVisualSettings } from '../cameraTypes';
@@ -28,7 +29,17 @@ import {
   MIN_VIEWPORT_ZOOM,
   ZOOM_BUTTON_STEP,
 } from '../whiteboard/types';
-import { duplicateElements, generateElementId, getElementBounds, offsetElement } from '../whiteboard/utils';
+import {
+  duplicateElements,
+  generateElementId,
+  getElementBounds,
+  getElementCenter,
+  getSelectionBounds,
+  moveElementCenterTo,
+  normalizeRotation,
+  offsetElement,
+  rotatePointAround,
+} from '../whiteboard/utils';
 
 type WhiteboardPageProps = {
   onOpenSettings: () => void;
@@ -160,6 +171,7 @@ function WhiteboardPage({
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   const [isTeleprompterOpen, setIsTeleprompterOpen] = useState(false);
+  const [teleprompterState, setTeleprompterState] = useState<TeleprompterPanelState>(() => loadTeleprompterState());
   const [slideTransition, setSlideTransition] = useState<RecordingTransition | null>(null);
   const [slideTransitionTick, setSlideTransitionTick] = useState(0);
   const recordingRuntimeRef = useRef<RecordingRuntime | null>(null);
@@ -177,6 +189,15 @@ function WhiteboardPage({
   const normalViewportBeforeRecordingRef = useRef<ViewportState | null>(null);
 
   const elements = history.present;
+  const updateTeleprompterState = useCallback((patch: Partial<TeleprompterPanelState>) => {
+    setTeleprompterState((current) => ({ ...current, ...patch }));
+  }, []);
+
+  useEffect(() => {
+    const saveTimer = window.setTimeout(() => saveTeleprompterState(teleprompterState), 250);
+    return () => window.clearTimeout(saveTimer);
+  }, [teleprompterState]);
+
   const clearRecordingTimer = useCallback(() => {
     if (recordingTimerRef.current !== null) {
       window.clearInterval(recordingTimerRef.current);
@@ -1115,29 +1136,54 @@ function WhiteboardPage({
   }, [activeTool, selectedColorStyle, selectedTextElement, shapeDefaults, textDefaults]);
 
   const selectedBounds = useMemo(() => {
-    if (selectedElements.length === 0) {
-      return null;
-    }
+    return getSelectionBounds(selectedElements);
+  }, [selectedElements]);
 
-    return selectedElements.reduce<ReturnType<typeof getElementBounds> | null>((bounds, element) => {
-      const current = getElementBounds(element);
-      if (!bounds) {
-        return current;
+  const handleRotateSelection = useCallback(
+    (degrees: number) => {
+      if (activeTool !== 'select' || selectedIds.length === 0) {
+        return;
       }
 
-      const left = Math.min(bounds.x, current.x);
-      const top = Math.min(bounds.y, current.y);
-      const right = Math.max(bounds.x + bounds.width, current.x + current.width);
-      const bottom = Math.max(bounds.y + bounds.height, current.y + current.height);
+      const selectedSet = new Set(selectedIds);
+      const scopeSelectedElements = elements.filter((element) => selectedSet.has(element.id));
+      const scopeSelectionBounds = getSelectionBounds(scopeSelectedElements);
+      if (!scopeSelectionBounds) {
+        return;
+      }
 
-      return {
-        x: left,
-        y: top,
-        width: right - left,
-        height: bottom - top,
-      };
-    }, null);
-  }, [selectedElements]);
+      const center = { x: scopeSelectionBounds.cx, y: scopeSelectionBounds.cy };
+      const nextElements = elements.map((element) =>
+        selectedSet.has(element.id) ? rotateElementAroundSelection(element, center, degrees) : element
+      );
+
+      onCommitElementsChange(elements, nextElements);
+    },
+    [activeTool, elements, onCommitElementsChange, selectedIds]
+  );
+
+  const handleFlipSelection = useCallback(
+    (axis: 'horizontal' | 'vertical') => {
+      if (activeTool !== 'select' || selectedIds.length === 0) {
+        return;
+      }
+
+      const selectedSet = new Set(selectedIds);
+      const scopeSelectedElements = elements.filter((element) => selectedSet.has(element.id));
+      const scopeSelectionBounds = getSelectionBounds(scopeSelectedElements);
+      if (!scopeSelectionBounds) {
+        return;
+      }
+
+      const center = { x: scopeSelectionBounds.cx, y: scopeSelectionBounds.cy };
+      const nextElements = elements.map((element) =>
+        selectedSet.has(element.id) ? flipElementAroundSelection(element, center, axis) : element
+      );
+
+      onCommitElementsChange(elements, nextElements);
+    },
+    [activeTool, elements, onCommitElementsChange, selectedIds]
+  );
 
   const getCurrentRecordingFrame = useCallback(() => {
     const rect = pageRef.current?.getBoundingClientRect();
@@ -1705,6 +1751,9 @@ function WhiteboardPage({
         onRedo={redo}
         canArrangeLayers={activeTool === 'select' && selectedIds.length > 0}
         onLayerAction={handleLayerAction}
+        canTransformSelection={activeTool === 'select' && selectedIds.length > 0}
+        onRotateSelection={handleRotateSelection}
+        onFlipSelection={handleFlipSelection}
       />
       <FloatingControlBar
         onOpenSettings={onOpenSettings}
@@ -1719,15 +1768,11 @@ function WhiteboardPage({
         recordingElapsedLabel={recordingElapsedLabel}
       />
       {isTeleprompterOpen ? (
-        <div className="board-teleprompter" role="dialog" aria-label="Teleprompter">
-          <div className="board-teleprompter__header">
-            <span>{'\u63d0\u8bcd\u5668'}</span>
-            <button type="button" onClick={() => setIsTeleprompterOpen(false)} aria-label="Close teleprompter">
-              ×
-            </button>
-          </div>
-          <div className="board-teleprompter__body">{'\u63d0\u8bcd\u5668\u5360\u4f4d\uff0c\u4e0d\u4f1a\u8fdb\u5165\u5f55\u5236\u753b\u9762\u3002'}</div>
-        </div>
+        <TeleprompterPanel
+          value={teleprompterState}
+          onChange={updateTeleprompterState}
+          onClose={() => setIsTeleprompterOpen(false)}
+        />
       ) : null}
       <video
         ref={cameraRecordingVideoRef}
@@ -1840,7 +1885,7 @@ function RecordingSlideSwitchButtons({
         disabled={!hasPrevious}
         aria-label="Previous slide"
       >
-        ‹
+        {'\u2039'}
       </button>
       <button
         type="button"
@@ -1850,7 +1895,7 @@ function RecordingSlideSwitchButtons({
         disabled={!hasNext}
         aria-label="Next slide"
       >
-        ›
+        {'\u203a'}
       </button>
     </>
   );
@@ -1876,7 +1921,7 @@ function ZoomControls({
   onRequestClear: () => void;
 }) {
   const percentage = Math.round(zoom * 100);
-  const lockedFitTitle = locked ? '录制模式下视图已自动适应当前录制区域' : '适应内容';
+  const lockedFitTitle = locked ? '\u5f55\u5236\u6a21\u5f0f\u4e0b\u89c6\u56fe\u5df2\u81ea\u52a8\u9002\u5e94\u5f53\u524d\u5f55\u5236\u533a\u57df' : '\u9002\u5e94\u5185\u5bb9';
   const [isEditingZoom, setIsEditingZoom] = useState(false);
   const [zoomInput, setZoomInput] = useState(String(percentage));
 
@@ -2236,6 +2281,27 @@ function SlideThumbnail({ slide }: { slide: Slide }) {
 }
 
 function renderSlideThumbnailElement(element: BoardElement) {
+  return (
+    <g key={element.id} transform={getSvgElementTransform(element)}>
+      {renderSlideThumbnailElementContent(element)}
+    </g>
+  );
+}
+
+function getSvgElementTransform(element: BoardElement) {
+  const rotation = normalizeRotation(element.rotation ?? 0);
+  const scaleX = element.flipX ? -1 : 1;
+  const scaleY = element.flipY ? -1 : 1;
+
+  if (!rotation && scaleX === 1 && scaleY === 1) {
+    return undefined;
+  }
+
+  const bounds = getElementBounds(element);
+  return `translate(${bounds.cx} ${bounds.cy}) rotate(${rotation}) scale(${scaleX} ${scaleY}) translate(${-bounds.cx} ${-bounds.cy})`;
+}
+
+function renderSlideThumbnailElementContent(element: BoardElement) {
   switch (element.type) {
     case 'draw':
       return (
@@ -2702,7 +2768,11 @@ function drawRecordingCameraOverlay(
       sourceY = (video.videoHeight - sourceHeight) / 2;
     }
 
-    context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, x, y, size, size);
+    context.save();
+    context.translate(x + size, y);
+    context.scale(-1, 1);
+    context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, size, size);
+    context.restore();
   } else {
     context.fillStyle = '#0f172a';
     context.fillRect(x, y, size, size);
@@ -2800,6 +2870,7 @@ function drawCanvasElement(context: CanvasRenderingContext2D, element: BoardElem
   context.save();
   context.lineJoin = 'round';
   context.lineCap = 'round';
+  applyCanvasElementTransform(context, element);
 
   switch (element.type) {
     case 'draw':
@@ -2845,6 +2916,22 @@ function drawCanvasElement(context: CanvasRenderingContext2D, element: BoardElem
   }
 
   context.restore();
+}
+
+function applyCanvasElementTransform(context: CanvasRenderingContext2D, element: BoardElement) {
+  const rotation = normalizeRotation(element.rotation ?? 0);
+  const scaleX = element.flipX ? -1 : 1;
+  const scaleY = element.flipY ? -1 : 1;
+
+  if (!rotation && scaleX === 1 && scaleY === 1) {
+    return;
+  }
+
+  const bounds = getElementBounds(element);
+  context.translate(bounds.cx, bounds.cy);
+  context.rotate((rotation * Math.PI) / 180);
+  context.scale(scaleX, scaleY);
+  context.translate(-bounds.cx, -bounds.cy);
 }
 
 function drawCanvasLine(context: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string) {
@@ -3036,25 +3123,7 @@ function fitViewportToElements(elements: BoardElement[], viewportWidth: number, 
 }
 
 function getElementsBounds(elements: BoardElement[]) {
-  return elements.reduce<ReturnType<typeof getElementBounds> | null>((bounds, element) => {
-    const current = getElementBounds(element);
-
-    if (!bounds) {
-      return current;
-    }
-
-    const left = Math.min(bounds.x, current.x);
-    const top = Math.min(bounds.y, current.y);
-    const right = Math.max(bounds.x + bounds.width, current.x + current.width);
-    const bottom = Math.max(bounds.y + bounds.height, current.y + current.height);
-
-    return {
-      x: left,
-      y: top,
-      width: right - left,
-      height: bottom - top,
-    };
-  }, null);
+  return getSelectionBounds(elements);
 }
 
 function zoomViewportAtScreenPoint(viewport: ViewportState, nextZoomValue: number, anchor: { x: number; y: number }): ViewportState {
@@ -3074,6 +3143,108 @@ function formatRecordingElapsed(milliseconds: number) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+const TELEPROMPTER_STORAGE_KEY = 'excalicord.teleprompter';
+
+function getDefaultTeleprompterState(): TeleprompterPanelState {
+  if (typeof window === 'undefined') {
+    return DEFAULT_TELEPROMPTER_STATE;
+  }
+
+  return {
+    ...DEFAULT_TELEPROMPTER_STATE,
+    position: {
+      x: Math.max(24, window.innerWidth - 620),
+      y: 132,
+    },
+  };
+}
+
+function loadTeleprompterState(): TeleprompterPanelState {
+  const fallback = getDefaultTeleprompterState();
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(TELEPROMPTER_STORAGE_KEY);
+    if (!rawValue) {
+      return fallback;
+    }
+
+    const parsed = JSON.parse(rawValue) as Partial<TeleprompterPanelState>;
+    return {
+      text: typeof parsed.text === 'string' ? parsed.text : fallback.text,
+      position: {
+        x: getFiniteNumber(parsed.position?.x, fallback.position.x),
+        y: getFiniteNumber(parsed.position?.y, fallback.position.y),
+      },
+      opacity: clampNumber(getFiniteNumber(parsed.opacity, fallback.opacity), 0.1, 1),
+      speed: clampNumber(getFiniteNumber(parsed.speed, fallback.speed), 1, 100),
+      scrollTop: Math.max(0, getFiniteNumber(parsed.scrollTop, fallback.scrollTop)),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveTeleprompterState(state: TeleprompterPanelState) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(TELEPROMPTER_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // The teleprompter remains usable even if browser storage is unavailable.
+  }
+}
+
+function getFiniteNumber(value: unknown, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function rotateElementAroundSelection<T extends BoardElement>(element: T, center: { x: number; y: number }, degrees: number): T {
+  const elementCenter = getElementCenter(element);
+  const nextCenter = rotatePointAround(elementCenter, center, degrees);
+  const moved = moveElementCenterTo(element, nextCenter.x, nextCenter.y);
+
+  return {
+    ...moved,
+    rotation: normalizeRotation((element.rotation ?? 0) + degrees),
+  };
+}
+
+function flipElementAroundSelection<T extends BoardElement>(
+  element: T,
+  center: { x: number; y: number },
+  axis: 'horizontal' | 'vertical'
+): T {
+  const elementCenter = getElementCenter(element);
+  const nextCenter =
+    axis === 'horizontal'
+      ? { x: center.x * 2 - elementCenter.x, y: elementCenter.y }
+      : { x: elementCenter.x, y: center.y * 2 - elementCenter.y };
+  const moved = moveElementCenterTo(element, nextCenter.x, nextCenter.y);
+
+  if (axis === 'horizontal') {
+    return {
+      ...moved,
+      flipX: !element.flipX,
+      rotation: normalizeRotation(180 - (element.rotation ?? 0)),
+    };
+  }
+
+  return {
+    ...moved,
+    flipY: !element.flipY,
+    rotation: normalizeRotation(-(element.rotation ?? 0)),
+  };
 }
 
 function reorderElementsByLayerAction(elements: BoardElement[], selectedIds: string[], action: LayerAction) {

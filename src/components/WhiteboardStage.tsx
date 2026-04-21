@@ -22,19 +22,20 @@ import {
   getConstrainedBoxFromOrigin,
   getConstrainedLinearPoint,
   getElementBounds,
+  getElementCenter,
   getAspectRatioConstrainedBounds,
-  getLinearHandlePositions,
+  getTransformedElementBounds,
+  hasElementTransform,
+  moveElementCenterTo,
+  normalizeRotation,
   getResizedBounds,
-  getSelectionHandlePositions,
   hitTestElement,
   isPointInBounds,
   normalizeBoxElement,
   normalizeRect,
   offsetElement,
   rectContainsBounds,
-  resizeBoxElement,
-  resizeLinearElement,
-  scaleElementToBounds,
+  rotatePointAround,
 } from '../whiteboard/utils';
 
 type WhiteboardStageProps = {
@@ -92,8 +93,24 @@ type RecordingSlideTransition = {
 };
 
 type ElementSnapshot = Record<string, BoardElement>;
+
+type SelectionOverlayBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  centerX: number;
+  centerY: number;
+  rotation: number;
+};
+
+type LockedGroupSelectionBox = SelectionOverlayBox & {
+  idsKey: string;
+};
 const OWNER_ENTER_THRESHOLD = 2 / 3;
 const OWNER_EXIT_THRESHOLD = 1 / 3;
+const ROTATE_HANDLE_OFFSET = 34;
+const ROTATE_HANDLE_RADIUS = 9;
 
 function WhiteboardStage({
   activeTool,
@@ -139,6 +156,8 @@ function WhiteboardStage({
   const [isCameraDragging, setIsCameraDragging] = useState(false);
   const [provisionalOwners, setProvisionalOwners] = useState<Record<string, string | null>>({});
   const provisionalOwnersRef = useRef<Record<string, string | null>>({});
+  const [lockedGroupSelectionBox, setLockedGroupSelectionBox] = useState<LockedGroupSelectionBox | null>(null);
+  const selectedIdsKey = selectedIds.join('|');
 
   const selectedSingleElement =
     selectedIds.length === 1 ? elements.find((element) => element.id === selectedIds[0]) ?? null : null;
@@ -164,12 +183,20 @@ function WhiteboardStage({
     };
   }, [cameraStream]);
 
+  useEffect(() => {
+    if (selectedIds.length <= 1 || lockedGroupSelectionBox?.idsKey !== selectedIdsKey) {
+      setLockedGroupSelectionBox(null);
+    }
+  }, [lockedGroupSelectionBox?.idsKey, selectedIds.length, selectedIdsKey]);
+
+
+  const selectedSingleElementIsLinear =
+    selectedSingleElement?.type === 'line' || selectedSingleElement?.type === 'arrow';
   const selectedElementUsesCustomSelection =
     selectedSingleElement &&
-    (selectedSingleElement.type === 'line' ||
-      selectedSingleElement.type === 'arrow' ||
-      selectedSingleElement.type === 'rectangle' ||
-      selectedSingleElement.type === 'ellipse');
+    (selectedSingleElementIsLinear ||
+      (!hasElementTransform(selectedSingleElement) &&
+        (selectedSingleElement.type === 'rectangle' || selectedSingleElement.type === 'ellipse')));
 
   const allowBoundsDrag = !(
     selectedSingleElement &&
@@ -212,6 +239,7 @@ function WhiteboardStage({
   const isTransformingSelection =
     interaction?.type === 'moving' ||
     interaction?.type === 'resizing' ||
+    interaction?.type === 'rotating' ||
     interaction?.type === 'drawing-shape' ||
     interaction?.type === 'drawing-stroke';
 
@@ -235,7 +263,7 @@ function WhiteboardStage({
       return [];
     }
 
-    return elements.filter((element) => rectContainsBounds(selectionBox, getElementBounds(element)));
+    return elements.filter((element) => rectContainsBounds(selectionBox, getTransformedElementBounds(element)));
   }, [elements, selectionBox]);
 
   const stagedCollections = useMemo(
@@ -251,6 +279,77 @@ function WhiteboardStage({
     const selectedSet = new Set(selectedIds);
     return elements.filter((element) => selectedSet.has(element.id));
   }, [elements, isMarqueeSelecting, isTransformingSelection, selectedIds]);
+  const selectionOverlayBox = (() => {
+    if (
+      interaction?.type === 'resizing' &&
+      interaction.handle !== 'start' &&
+      interaction.handle !== 'end' &&
+      interaction.selectionBounds &&
+      interaction.selectionCenter &&
+      interaction.selectionRotation !== undefined
+    ) {
+      return createSelectionOverlayBoxFromLocalBounds(
+        interaction.currentSelectionBounds ?? interaction.selectionBounds,
+        interaction.selectionCenter,
+        interaction.selectionRotation
+      );
+    }
+
+    if (interaction?.type === 'rotating') {
+      return {
+        ...interaction.selectionBounds,
+        centerX: interaction.center.x,
+        centerY: interaction.center.y,
+        rotation: interaction.currentRotation,
+      } satisfies SelectionOverlayBox;
+    }
+
+    if (selectedSingleElement) {
+      const bounds = getElementBounds(selectedSingleElement);
+      const center = getElementCenter(selectedSingleElement);
+      return {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        centerX: center.x,
+        centerY: center.y,
+        rotation: normalizeRotation(selectedSingleElement.rotation ?? 0),
+      } satisfies SelectionOverlayBox;
+    }
+
+    if (lockedGroupSelectionBox?.idsKey === selectedIdsKey && selectedIds.length > 1) {
+      return lockedGroupSelectionBox;
+    }
+
+    if (selectedBounds && selectedIds.length > 1) {
+      return {
+        x: selectedBounds.x,
+        y: selectedBounds.y,
+        width: selectedBounds.width,
+        height: selectedBounds.height,
+        centerX: selectedBounds.x + selectedBounds.width / 2,
+        centerY: selectedBounds.y + selectedBounds.height / 2,
+        rotation: 0,
+      } satisfies SelectionOverlayBox;
+    }
+
+    return null;
+  })();
+
+  const shouldRenderSelectionBox = Boolean(
+    selectionOverlayBox &&
+      !editingElement &&
+      !isMarqueeSelecting &&
+      (!selectedElementUsesCustomSelection || (!selectedSingleElementIsLinear && interaction?.type === 'rotating') || selectedIds.length > 1)
+  );
+
+  const selectionOverlayClassName =
+    selectedIds.length > 1
+      ? 'board-stage__group-bounds'
+      : selectedSingleElement?.type === 'image'
+        ? 'board-stage__selected-bounds board-stage__selected-bounds--solid'
+        : 'board-stage__selected-bounds';
 
   const getWorldPoint = (event: React.PointerEvent | React.MouseEvent): BoardPoint => {
     const rect = surfaceRef.current?.getBoundingClientRect();
@@ -396,25 +495,18 @@ function WhiteboardStage({
     return null;
   };
 
-  const getResizeCursor = (handle: DragHandle) => {
-    switch (handle) {
-      case 'nw':
-      case 'se':
-        return 'nwse-resize';
-      case 'ne':
-      case 'sw':
-        return 'nesw-resize';
-      case 'start':
-      case 'end':
-        return 'move';
-      default:
-        return 'default';
-    }
-  };
+  const getResizeCursor = (handle: DragHandle) =>
+    (handle === 'start' || handle === 'end') && selectedSingleElementIsLinear && selectedSingleElement
+      ? getLinearEndpointCursor(selectedSingleElement)
+      : getDragHandleCursor(handle);
 
   const getHoverCursorForPoint = (point: BoardPoint) => {
     if (activeTool !== 'select' || editingElement) {
       return null;
+    }
+
+    if (getRotationHandleHit(point)) {
+      return 'grab';
     }
 
     const linearHandle = getLinearResizeHandle(point);
@@ -435,6 +527,23 @@ function WhiteboardStage({
     return hitElement ? 'move' : null;
   };
 
+  const getRotationHandleHit = (point: BoardPoint) => {
+    if (!selectionOverlayBox || selectedIds.length === 0) {
+      return false;
+    }
+
+    if (selectedSingleElementIsLinear && selectedSingleElement) {
+      const geometry = getLinearRotationHandleGeometry(selectedSingleElement);
+      return isPointInBounds(point, normalizeRect(geometry.handle.x - 10, geometry.handle.y - 10, 20, 20));
+    }
+
+    const center = { x: selectionOverlayBox.centerX, y: selectionOverlayBox.centerY };
+    const localPoint = rotatePointAround(point, center, -selectionOverlayBox.rotation);
+    const handleX = selectionOverlayBox.x + selectionOverlayBox.width / 2;
+    const handleY = selectionOverlayBox.y - 34;
+    return isPointInBounds(localPoint, normalizeRect(handleX - 10, handleY - 10, 20, 20));
+  };
+
   const eraseAtPoint = (point: BoardPoint) => {
     const target = getTopElementAtPoint(point);
     if (!target) {
@@ -451,18 +560,16 @@ function WhiteboardStage({
   };
 
   const getBoxResizeHandle = (point: BoardPoint): DragHandle | null => {
-    if (selectedSingleElement) {
+    if (selectedSingleElement && selectionOverlayBox) {
       if (selectedSingleElement.type === 'line' || selectedSingleElement.type === 'arrow') {
         return null;
       }
 
-      const handles = getSelectionHandlePositions(selectedSingleElement);
-      return handles.find((handle) => isPointInBounds(point, normalizeRect(handle.x - 7, handle.y - 7, 14, 14)))?.key ?? null;
+      return getSelectionBoxResizeHandle(point, selectionOverlayBox);
     }
 
-    if (selectedIds.length > 1 && selectedBounds) {
-      const handles = getGroupHandlePositions();
-      return handles.find((handle) => isPointInBounds(point, normalizeRect(handle.x - 7, handle.y - 7, 14, 14)))?.key ?? null;
+    if (selectedIds.length > 1 && selectionOverlayBox) {
+      return getSelectionBoxResizeHandle(point, selectionOverlayBox);
     }
 
     return null;
@@ -473,22 +580,10 @@ function WhiteboardStage({
       return null;
     }
 
-    const handles = getLinearHandlePositions(selectedSingleElement);
+    const handles = getVisualLinearHandlePositions(selectedSingleElement);
     return handles.find((handle) => isPointInBounds(point, normalizeRect(handle.x - 8, handle.y - 8, 16, 16)))?.key ?? null;
   };
 
-  const getGroupHandlePositions = () => {
-    if (!selectedBounds) {
-      return [];
-    }
-
-    return [
-      { key: 'nw' as DragHandle, x: selectedBounds.x, y: selectedBounds.y },
-      { key: 'ne' as DragHandle, x: selectedBounds.x + selectedBounds.width, y: selectedBounds.y },
-      { key: 'sw' as DragHandle, x: selectedBounds.x, y: selectedBounds.y + selectedBounds.height },
-      { key: 'se' as DragHandle, x: selectedBounds.x + selectedBounds.width, y: selectedBounds.y + selectedBounds.height },
-    ];
-  };
 
   const commitTextEdit = (nextValue: string) => {
     if (!textEditor || !editingElement) {
@@ -540,6 +635,38 @@ function WhiteboardStage({
       activeTool === 'text';
 
     const scopeElements = targetScopeId === activeSlideId ? elements : getScopeElements(targetScopeId);
+
+    if (activeTool === 'select' && selectionOverlayBox && selectedIds.length > 0 && getRotationHandleHit(point)) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      const snapshot = Object.fromEntries(
+        elements
+          .filter((element) => selectedIds.includes(element.id))
+          .map((element) => [element.id, structuredClone(element)])
+      ) as ElementSnapshot;
+      const center = {
+        x: selectionOverlayBox.centerX,
+        y: selectionOverlayBox.centerY,
+      };
+
+      setInteraction({
+        type: 'rotating',
+        pointerId: event.pointerId,
+        center,
+        startAngle: getAngleDegrees(center, point),
+        startRotation: selectionOverlayBox.rotation,
+        currentRotation: selectionOverlayBox.rotation,
+        selectionBounds: {
+          x: selectionOverlayBox.x,
+          y: selectionOverlayBox.y,
+          width: selectionOverlayBox.width,
+          height: selectionOverlayBox.height,
+        },
+        snapshot,
+        initialElements: structuredClone(elements),
+        targetIds: [...selectedIds],
+      });
+      return;
+    }
 
     if (isCreationTool && targetScopeId !== activeSlideId) {
       onActiveSlideChange(targetScopeId);
@@ -650,6 +777,7 @@ function WhiteboardStage({
 
     const linearHandle = getLinearResizeHandle(point);
     if (linearHandle && selectedSingleElement) {
+      const bounds = getElementBounds(selectedSingleElement);
       setInteraction({
         type: 'resizing',
         pointerId: event.pointerId,
@@ -657,7 +785,9 @@ function WhiteboardStage({
         handle: linearHandle,
         snapshot: selectedSingleElement,
         initialElements: structuredClone(elements),
-        selectionBounds: getElementBounds(selectedSingleElement),
+        selectionBounds: bounds,
+        selectionCenter: { x: bounds.cx, y: bounds.cy },
+        selectionRotation: normalizeRotation(selectedSingleElement.rotation ?? 0),
         targetIds: [selectedSingleElement.id],
       });
       return;
@@ -666,6 +796,18 @@ function WhiteboardStage({
     const boxHandle = getBoxResizeHandle(point);
     if (boxHandle) {
       if (selectedSingleElement) {
+        const bounds = selectionOverlayBox
+          ? {
+              x: selectionOverlayBox.x,
+              y: selectionOverlayBox.y,
+              width: selectionOverlayBox.width,
+              height: selectionOverlayBox.height,
+            }
+          : getElementBounds(selectedSingleElement);
+        const center = selectionOverlayBox
+          ? { x: selectionOverlayBox.centerX, y: selectionOverlayBox.centerY }
+          : getElementCenter(selectedSingleElement);
+
         setInteraction({
           type: 'resizing',
           pointerId: event.pointerId,
@@ -673,7 +815,9 @@ function WhiteboardStage({
           handle: boxHandle,
           snapshot: selectedSingleElement,
           initialElements: structuredClone(elements),
-          selectionBounds: getElementBounds(selectedSingleElement),
+          selectionBounds: bounds,
+          selectionCenter: center,
+          selectionRotation: selectionOverlayBox?.rotation ?? normalizeRotation(selectedSingleElement.rotation ?? 0),
           targetIds: [selectedSingleElement.id],
         });
         return;
@@ -685,6 +829,17 @@ function WhiteboardStage({
             .filter((element) => selectedIds.includes(element.id))
             .map((element) => [element.id, structuredClone(element)])
         ) as ElementSnapshot;
+        const bounds = selectionOverlayBox
+          ? {
+              x: selectionOverlayBox.x,
+              y: selectionOverlayBox.y,
+              width: selectionOverlayBox.width,
+              height: selectionOverlayBox.height,
+            }
+          : structuredClone(selectedBounds);
+        const center = selectionOverlayBox
+          ? { x: selectionOverlayBox.centerX, y: selectionOverlayBox.centerY }
+          : { x: selectedBounds.x + selectedBounds.width / 2, y: selectedBounds.y + selectedBounds.height / 2 };
 
         setInteraction({
           type: 'resizing',
@@ -693,7 +848,9 @@ function WhiteboardStage({
           handle: boxHandle,
           snapshot,
           initialElements: structuredClone(elements),
-          selectionBounds: structuredClone(selectedBounds),
+          selectionBounds: bounds,
+          selectionCenter: center,
+          selectionRotation: selectionOverlayBox?.rotation ?? 0,
           targetIds: [...selectedIds],
         });
         return;
@@ -814,6 +971,21 @@ function WhiteboardStage({
         updateProvisionalOwners(nextElements, targetIds);
         break;
       }
+      case 'rotating': {
+        const angle = getAngleDegrees(interaction.center, point);
+        const rawDelta = angle - interaction.startAngle;
+        const delta = event.shiftKey ? Math.round(rawDelta / 15) * 15 : rawDelta;
+        const snapshotMap = interaction.snapshot as ElementSnapshot;
+        const nextElements = elements.map((element) => {
+          const snapshot = snapshotMap[element.id];
+          return snapshot ? rotateElementSnapshotAround(snapshot, interaction.center, delta) : element;
+        });
+
+        onElementsChange(nextElements);
+        updateProvisionalOwners(nextElements, interaction.targetIds);
+        setInteraction({ ...interaction, currentRotation: normalizeRotation(interaction.startRotation + delta) });
+        break;
+      }
       case 'selecting':
         setInteraction({ ...interaction, currentPoint: point });
         break;
@@ -824,49 +996,62 @@ function WhiteboardStage({
           zoom: interaction.startViewport.zoom,
         });
         break;
-      case 'resizing':
-        {
-        const nextElements = (() => {
-          if (!interaction.selectionBounds) {
-            return elements;
-          }
+      case 'resizing': {
+        if (!interaction.selectionBounds || !Array.isArray(interaction.targetIds) || interaction.targetIds.length === 0) {
+          break;
+        }
 
-          if (!Array.isArray(interaction.targetIds) || interaction.targetIds.length === 0) {
-            return elements;
-          }
-
-          if (interaction.targetIds.length > 1) {
-            const nextBounds = event.shiftKey
-              ? getAspectRatioConstrainedBounds(interaction.selectionBounds, interaction.handle, point)
-              : getResizedBounds(interaction.selectionBounds, interaction.handle, point);
-            const snapshotMap = interaction.snapshot as ElementSnapshot;
-
-            return elements.map((element) => {
-              const snapshot = snapshotMap[element.id];
-              return snapshot ? scaleElementToBounds(snapshot, interaction.selectionBounds!, nextBounds) : element;
-            });
-          }
-
-          return elements.map((element) => {
+        if (interaction.handle === 'start' || interaction.handle === 'end') {
+          const nextElements = elements.map((element) => {
             if (element.id !== interaction.elementId) {
               return element;
             }
 
-            const snapshot = interaction.snapshot as BoardElement;
-
-            if (element.type === 'line' || element.type === 'arrow') {
-              return resizeLinearElement(snapshot, interaction.handle, point, event.shiftKey);
-            }
-
-            const keepSquare = event.shiftKey && (element.type === 'rectangle' || element.type === 'ellipse');
-            const keepAspectRatio = event.shiftKey && (element.type === 'image' || element.type === 'draw');
-            return resizeBoxElement(snapshot, interaction.handle, point, keepSquare, keepAspectRatio);
+            return resizeLinearElementFromVisualPoint(interaction.snapshot as BoardElement, interaction.handle, point, event.shiftKey);
           });
-        })();
+          onElementsChange(nextElements);
+          updateProvisionalOwners(nextElements, interaction.targetIds);
+          break;
+        }
+
+        if (!interaction.selectionCenter || interaction.selectionRotation === undefined) {
+          break;
+        }
+
+        const preserveAspectRatio =
+          event.shiftKey &&
+          (interaction.targetIds.length > 1 ||
+            ((interaction.snapshot as BoardElement).type === 'rectangle' ||
+              (interaction.snapshot as BoardElement).type === 'ellipse' ||
+              (interaction.snapshot as BoardElement).type === 'image' ||
+              (interaction.snapshot as BoardElement).type === 'draw'));
+        const nextBounds = getOrientedResizedBounds(
+          interaction.selectionBounds,
+          interaction.selectionCenter,
+          interaction.selectionRotation,
+          interaction.handle,
+          point,
+          preserveAspectRatio
+        );
+        const snapshotMap = interaction.targetIds.length > 1 ? (interaction.snapshot as ElementSnapshot) : null;
+        const nextElements = elements.map((element) => {
+          const snapshot = snapshotMap ? snapshotMap[element.id] : element.id === interaction.elementId ? (interaction.snapshot as BoardElement) : null;
+          return snapshot
+            ? resizeElementWithSelectionMapping(
+                snapshot,
+                interaction.selectionBounds!,
+                nextBounds,
+                interaction.selectionCenter!,
+                interaction.selectionRotation!
+              )
+            : element;
+        });
+
         onElementsChange(nextElements);
         updateProvisionalOwners(nextElements, interaction.targetIds);
-        }
+        setInteraction({ ...interaction, currentSelectionBounds: nextBounds });
         break;
+      }
       case 'erasing':
         eraseAtPoint(point);
         break;
@@ -893,7 +1078,28 @@ function WhiteboardStage({
       onActiveToolChange('select');
     }
 
-    if (interaction.type === 'moving' || interaction.type === 'resizing') {
+    if (interaction.type === 'moving' || interaction.type === 'resizing' || interaction.type === 'rotating') {
+      if (interaction.type === 'rotating' && interaction.targetIds.length > 1) {
+        setLockedGroupSelectionBox({
+          ...interaction.selectionBounds,
+          centerX: interaction.center.x,
+          centerY: interaction.center.y,
+          rotation: interaction.currentRotation,
+          idsKey: interaction.targetIds.join('|'),
+        });
+      } else if (interaction.type === 'resizing' && interaction.targetIds.length > 1 && interaction.selectionCenter && interaction.selectionRotation !== undefined) {
+        setLockedGroupSelectionBox({
+          ...createSelectionOverlayBoxFromLocalBounds(
+            interaction.currentSelectionBounds ?? interaction.selectionBounds!,
+            interaction.selectionCenter,
+            interaction.selectionRotation
+          ),
+          idsKey: interaction.targetIds.join('|'),
+        });
+      } else if (interaction.type === 'moving') {
+        setLockedGroupSelectionBox(null);
+      }
+
       const ownerMap = provisionalOwnersRef.current;
       if (Object.keys(ownerMap).length > 0) {
         onCommitElementOwnerMigration(interaction.initialElements, elements, ownerMap);
@@ -1090,32 +1296,41 @@ function WhiteboardStage({
             />
           )}
 
-          {!isMarqueeSelecting && (editingBounds || selectedBounds) && !selectedElementUsesCustomSelection && (
+          {!isMarqueeSelecting && editingBounds ? (
             <rect
-              x={(editingBounds ?? selectedBounds)?.x}
-              y={(editingBounds ?? selectedBounds)?.y}
-              width={(editingBounds ?? selectedBounds)?.width}
-              height={(editingBounds ?? selectedBounds)?.height}
-              className={
-                editingElement?.type === 'text'
-                  ? 'board-stage__editing-bounds'
-                  : selectedIds.length > 1
-                    ? 'board-stage__group-bounds'
-                    : selectedSingleElement?.type === 'image'
-                    ? 'board-stage__selected-bounds board-stage__selected-bounds--solid'
-                    : 'board-stage__selected-bounds'
-              }
+              x={editingBounds.x}
+              y={editingBounds.y}
+              width={editingBounds.width}
+              height={editingBounds.height}
+              className="board-stage__editing-bounds"
             />
-          )}
+          ) : null}
+
+          {shouldRenderSelectionBox && selectionOverlayBox
+            ? renderSelectionOverlay(selectionOverlayBox, selectionOverlayClassName, true, true)
+            : selectionOverlayBox && !editingElement && !isMarqueeSelecting
+              ? selectedSingleElementIsLinear && selectedSingleElement
+                ? renderLinearRotationHandle(selectedSingleElement)
+                : renderSelectionOverlay(selectionOverlayBox, selectionOverlayClassName, false, true)
+              : null}
 
           {!isMarqueeSelecting && !isTransformingSelection && selectedSingleElement && renderSingleSelectionOverlay(selectedSingleElement)}
 
-          {!editingElement && !isMarqueeSelecting &&
-            (selectedSingleElement
-              ? renderHandles(selectedSingleElement)
-              : selectedBounds && selectedIds.length > 1
-                ? renderGroupHandles(selectedBounds)
-                : null)}
+
+          {!editingElement && !isMarqueeSelecting && selectedSingleElement && selectionOverlayBox
+            ? shouldUseSelectionBoxResizeHandles(selectedSingleElement)
+              ? renderSelectionResizeHandles(
+                  selectionOverlayBox,
+                  selectedSingleElement.type === 'image'
+                    ? 'board-stage__handle board-stage__handle--image'
+                    : 'board-stage__handle'
+                )
+              : renderHandles(selectedSingleElement)
+            : null}
+
+          {!editingElement && !isMarqueeSelecting && !selectedSingleElement && selectionOverlayBox && selectedIds.length > 1
+            ? renderSelectionResizeHandles(selectionOverlayBox, 'board-stage__handle')
+            : null}
         </g>
       </svg>
 
@@ -1375,7 +1590,7 @@ function resolveElementOwner(element: BoardElement, slides: Slide[], currentOwne
   const overlaps = slides
     .map((slide) => ({
       slideId: slide.id,
-      ratio: getBoundsOverlapRatio(getElementBounds(element), slide.frame),
+      ratio: getBoundsOverlapRatio(getTransformedElementBounds(element), slide.frame),
     }))
     .sort((a, b) => b.ratio - a.ratio);
   const bestOverlap = overlaps[0] ?? null;
@@ -1424,10 +1639,223 @@ function getBoundsOverlapRatio(bounds: ReturnType<typeof normalizeRect>, frame: 
   return ((right - left) * (bottom - top)) / boundsArea;
 }
 
+function getAngleDegrees(center: BoardPoint, point: BoardPoint) {
+  return (Math.atan2(point.y - center.y, point.x - center.x) * 180) / Math.PI;
+}
+
+function rotateElementSnapshotAround<T extends BoardElement>(element: T, center: BoardPoint, deltaDegrees: number): T {
+  const elementCenter = getElementCenter(element);
+  const nextCenter = rotatePointAround(elementCenter, center, deltaDegrees);
+  const moved = moveElementCenterTo(element, nextCenter.x, nextCenter.y);
+
+  return {
+    ...moved,
+    rotation: normalizeRotation((element.rotation ?? 0) + deltaDegrees),
+  };
+}
+
+
+type LocalBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+function createSelectionOverlayBoxFromLocalBounds(bounds: LocalBounds, center: BoardPoint, rotation: number): SelectionOverlayBox {
+  const localCenter = {
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2,
+  };
+  const worldCenter = rotatePointAround(localCenter, center, rotation);
+
+  return {
+    x: worldCenter.x - bounds.width / 2,
+    y: worldCenter.y - bounds.height / 2,
+    width: bounds.width,
+    height: bounds.height,
+    centerX: worldCenter.x,
+    centerY: worldCenter.y,
+    rotation,
+  };
+}
+
+function mapSelectionPoint(
+  point: BoardPoint,
+  sourceBounds: LocalBounds,
+  targetBounds: LocalBounds,
+  center: BoardPoint,
+  rotation: number
+) {
+  const localPoint = rotatePointAround(point, center, -rotation);
+  const normalizedX = sourceBounds.width === 0 ? 0.5 : (localPoint.x - sourceBounds.x) / sourceBounds.width;
+  const normalizedY = sourceBounds.height === 0 ? 0.5 : (localPoint.y - sourceBounds.y) / sourceBounds.height;
+  const mappedLocal = {
+    x: targetBounds.x + normalizedX * targetBounds.width,
+    y: targetBounds.y + normalizedY * targetBounds.height,
+  };
+
+  return rotatePointAround(mappedLocal, center, rotation);
+}
+
+function resizeElementWithSelectionMapping<T extends BoardElement>(
+  element: T,
+  sourceBounds: LocalBounds,
+  targetBounds: LocalBounds,
+  selectionCenter: BoardPoint,
+  selectionRotation: number
+): T {
+  const elementCenter = getElementCenter(element);
+  const nextElementCenter = mapSelectionPoint(elementCenter, sourceBounds, targetBounds, selectionCenter, selectionRotation);
+  const mapRawPoint = (point: BoardPoint) =>
+    inverseElementTransformPoint(
+      mapSelectionPoint(transformElementPoint(point, elementCenter, element), sourceBounds, targetBounds, selectionCenter, selectionRotation),
+      nextElementCenter,
+      element
+    );
+
+  switch (element.type) {
+    case 'draw':
+      return {
+        ...element,
+        points: element.points.map((point) => mapRawPoint(point)),
+      } as T;
+    case 'line':
+    case 'arrow': {
+      const start = mapRawPoint({ x: element.x1, y: element.y1 });
+      const end = mapRawPoint({ x: element.x2, y: element.y2 });
+      return {
+        ...element,
+        x1: start.x,
+        y1: start.y,
+        x2: end.x,
+        y2: end.y,
+      } as T;
+    }
+    case 'rectangle':
+    case 'ellipse':
+    case 'text':
+    case 'image': {
+      const bounds = getElementBounds(element);
+      const mappedCorners = [
+        { x: bounds.x, y: bounds.y },
+        { x: bounds.x + bounds.width, y: bounds.y },
+        { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+        { x: bounds.x, y: bounds.y + bounds.height },
+      ].map((point) => mapRawPoint(point));
+      const next = boundsFromPoints(mappedCorners);
+
+      return {
+        ...element,
+        x: next.x,
+        y: next.y,
+        width: next.width,
+        height: next.height,
+      } as T;
+    }
+    default:
+      return element;
+  }
+}
+
+function resizeLinearElementFromVisualPoint(element: BoardElement, handle: DragHandle, point: BoardPoint, snapAngle: boolean) {
+  if (element.type !== 'line' && element.type !== 'arrow') {
+    return element;
+  }
+
+  const center = getElementCenter(element);
+  const visualStart = transformElementPoint({ x: element.x1, y: element.y1 }, center, element);
+  const visualEnd = transformElementPoint({ x: element.x2, y: element.y2 }, center, element);
+
+  if (handle === 'start') {
+    const nextStart = snapAngle ? getConstrainedLinearPoint(visualEnd, point) : point;
+    return {
+      ...element,
+      x1: nextStart.x,
+      y1: nextStart.y,
+      x2: visualEnd.x,
+      y2: visualEnd.y,
+      rotation: 0,
+      flipX: false,
+      flipY: false,
+    };
+  }
+
+  const nextEnd = snapAngle ? getConstrainedLinearPoint(visualStart, point) : point;
+  return {
+    ...element,
+    x1: visualStart.x,
+    y1: visualStart.y,
+    x2: nextEnd.x,
+    y2: nextEnd.y,
+    rotation: 0,
+    flipX: false,
+    flipY: false,
+  };
+}
+
+function getVisualLinearHandlePositions(element: LinearElement) {
+  const center = getElementCenter(element);
+  return [
+    { key: 'start' as DragHandle, ...transformElementPoint({ x: element.x1, y: element.y1 }, center, element) },
+    { key: 'end' as DragHandle, ...transformElementPoint({ x: element.x2, y: element.y2 }, center, element) },
+  ];
+}
+
+function transformElementPoint(point: BoardPoint, center: BoardPoint, element: BoardElement) {
+  const scaleX = element.flipX ? -1 : 1;
+  const scaleY = element.flipY ? -1 : 1;
+  const scaled = {
+    x: center.x + (point.x - center.x) * scaleX,
+    y: center.y + (point.y - center.y) * scaleY,
+  };
+
+  return rotatePointAround(scaled, center, normalizeRotation(element.rotation ?? 0));
+}
+
+function inverseElementTransformPoint(point: BoardPoint, center: BoardPoint, element: BoardElement) {
+  const unrotated = rotatePointAround(point, center, -normalizeRotation(element.rotation ?? 0));
+
+  return {
+    x: center.x + (unrotated.x - center.x) * (element.flipX ? -1 : 1),
+    y: center.y + (unrotated.y - center.y) * (element.flipY ? -1 : 1),
+  };
+}
+
+function boundsFromPoints(points: BoardPoint[]) {
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  const right = Math.max(...xs);
+  const bottom = Math.max(...ys);
+
+  return normalizeRect(left, top, right - left, bottom - top);
+}
 function getSlideClipId(slideId: string) {
   return `slide-clip-${slideId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 }
 function renderElement(element: BoardElement) {
+  return (
+    <g key={element.id} transform={getElementSvgTransform(element)}>
+      {renderElementContent(element)}
+    </g>
+  );
+}
+
+function getElementSvgTransform(element: BoardElement) {
+  if (!hasElementTransform(element)) {
+    return undefined;
+  }
+
+  const center = getElementCenter(element);
+  const rotation = normalizeRotation(element.rotation ?? 0);
+  const scaleX = element.flipX ? -1 : 1;
+  const scaleY = element.flipY ? -1 : 1;
+  return `translate(${center.x} ${center.y}) rotate(${rotation}) scale(${scaleX} ${scaleY}) translate(${-center.x} ${-center.y})`;
+}
+
+function renderElementContent(element: BoardElement) {
   switch (element.type) {
     case 'draw':
       return (
@@ -1523,6 +1951,14 @@ function getElementColor(element: BoardElement) {
 }
 
 function renderPreviewOverlay(element: BoardElement) {
+  return (
+    <g key={`${element.id}-preview`} transform={getElementSvgTransform(element)}>
+      {renderPreviewOverlayContent(element)}
+    </g>
+  );
+}
+
+function renderPreviewOverlayContent(element: BoardElement) {
   switch (element.type) {
     case 'draw':
       return (
@@ -1589,6 +2025,14 @@ function renderPreviewOverlay(element: BoardElement) {
 }
 
 function renderSingleSelectionOverlay(element: BoardElement) {
+  return (
+    <g key={`${element.id}-selected`} transform={getElementSvgTransform(element)}>
+      {renderSingleSelectionOverlayContent(element)}
+    </g>
+  );
+}
+
+function renderSingleSelectionOverlayContent(element: BoardElement) {
   switch (element.type) {
     case 'draw':
       return (
@@ -1694,12 +2138,131 @@ function getArrowHeadGeometry(element: LinearElement) {
     shaftEnd: { x: baseX, y: baseY },
   };
 }
+function shouldUseSelectionBoxResizeHandles(element: BoardElement) {
+  return element.type !== 'line' && element.type !== 'arrow';
+}
+
+function getSelectionBoxResizeHandle(point: BoardPoint, box: SelectionOverlayBox): DragHandle | null {
+  const center = { x: box.centerX, y: box.centerY };
+  const localPoint = rotatePointAround(point, center, -box.rotation);
+  const handles = getSelectionBoxHandlePositions(box);
+
+  return handles.find((handle) => isPointInBounds(localPoint, normalizeRect(handle.x - 7, handle.y - 7, 14, 14)))?.key ?? null;
+}
+
+function getSelectionBoxHandlePositions(box: SelectionOverlayBox) {
+  const centerX = box.x + box.width / 2;
+  const centerY = box.y + box.height / 2;
+
+  return [
+    { key: 'nw' as DragHandle, x: box.x, y: box.y },
+    { key: 'n' as DragHandle, x: centerX, y: box.y },
+    { key: 'ne' as DragHandle, x: box.x + box.width, y: box.y },
+    { key: 'e' as DragHandle, x: box.x + box.width, y: centerY },
+    { key: 'se' as DragHandle, x: box.x + box.width, y: box.y + box.height },
+    { key: 's' as DragHandle, x: centerX, y: box.y + box.height },
+    { key: 'sw' as DragHandle, x: box.x, y: box.y + box.height },
+    { key: 'w' as DragHandle, x: box.x, y: centerY },
+  ];
+}
+
+function getOrientedResizedBounds(
+  bounds: ReturnType<typeof normalizeRect>,
+  center: BoardPoint,
+  rotation: number,
+  handle: DragHandle,
+  point: BoardPoint,
+  preserveAspectRatio: boolean
+) {
+  const localPoint = rotatePointAround(point, center, -rotation);
+
+  if (preserveAspectRatio && isCornerResizeHandle(handle)) {
+    return getAspectRatioConstrainedBounds(bounds, handle, localPoint);
+  }
+
+  return getResizedBounds(bounds, handle, localPoint);
+}
+
+function isCornerResizeHandle(handle: DragHandle) {
+  return handle === 'nw' || handle === 'ne' || handle === 'se' || handle === 'sw';
+}
+
+function getDragHandleCursor(handle: DragHandle) {
+  switch (handle) {
+    case 'nw':
+    case 'se':
+      return 'nwse-resize';
+    case 'ne':
+    case 'sw':
+      return 'nesw-resize';
+    case 'n':
+    case 's':
+      return 'ns-resize';
+    case 'e':
+    case 'w':
+      return 'ew-resize';
+    case 'start':
+    case 'end':
+      return 'ew-resize';
+    default:
+      return 'default';
+  }
+}
+
+function getLinearEndpointCursor(element: LinearElement) {
+  const [startHandle, endHandle] = getVisualLinearHandlePositions(element);
+  const dx = endHandle.x - startHandle.x;
+  const dy = endHandle.y - startHandle.y;
+  const length = Math.hypot(dx, dy);
+
+  if (length < 0.001) {
+    return 'ew-resize';
+  }
+
+  const angle = ((Math.atan2(dy, dx) * 180) / Math.PI + 180) % 180;
+
+  if (angle < 22.5 || angle >= 157.5) {
+    return 'ew-resize';
+  }
+
+  if (angle < 67.5) {
+    return 'nwse-resize';
+  }
+
+  if (angle < 112.5) {
+    return 'ns-resize';
+  }
+
+  return 'nesw-resize';
+}
+function renderSelectionResizeHandles(box: SelectionOverlayBox, className: string) {
+  const transform = `translate(${box.centerX} ${box.centerY}) rotate(${box.rotation}) translate(${-box.centerX} ${-box.centerY})`;
+
+  return (
+    <g transform={transform}>
+      {getSelectionBoxHandlePositions(box).map((handle) => (
+        <rect
+          key={`selection-${handle.key}`}
+          className={className}
+          style={{ cursor: getDragHandleCursor(handle.key) }}
+          x={handle.x - 6}
+          y={handle.y - 6}
+          width={12}
+          height={12}
+          rx={3}
+          ry={3}
+        />
+      ))}
+    </g>
+  );
+}
 function renderHandles(element: BoardElement) {
   if (element.type === 'line' || element.type === 'arrow') {
-    return getLinearHandlePositions(element).map((handle) => (
+    return getVisualLinearHandlePositions(element).map((handle) => (
       <rect
         key={`${element.id}-${handle.key}`}
         className="board-stage__handle"
+        style={{ cursor: getLinearEndpointCursor(element) }}
         x={handle.x - 6}
         y={handle.y - 6}
         width={12}
@@ -1712,41 +2275,117 @@ function renderHandles(element: BoardElement) {
 
   const handleClassName =
     element.type === 'image' ? 'board-stage__handle board-stage__handle--image' : 'board-stage__handle';
+  const bounds = getElementBounds(element);
+  const box = {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    centerX: bounds.cx,
+    centerY: bounds.cy,
+    rotation: 0,
+  } satisfies SelectionOverlayBox;
 
-  return getSelectionHandlePositions(element).map((handle) => (
-    <rect
-      key={`${element.id}-${handle.key}`}
-      className={handleClassName}
-      x={handle.x - 6}
-      y={handle.y - 6}
-      width={12}
-      height={12}
-      rx={3}
-      ry={3}
-    />
-  ));
+  return renderSelectionResizeHandles(box, handleClassName);
 }
 
-function renderGroupHandles(bounds: ReturnType<typeof normalizeRect>) {
-  const handles = [
-    { key: 'nw', x: bounds.x, y: bounds.y },
-    { key: 'ne', x: bounds.x + bounds.width, y: bounds.y },
-    { key: 'sw', x: bounds.x, y: bounds.y + bounds.height },
-    { key: 'se', x: bounds.x + bounds.width, y: bounds.y + bounds.height },
-  ];
 
-  return handles.map((handle) => (
-    <rect
-      key={`group-${handle.key}`}
-      className="board-stage__handle"
-      x={handle.x - 6}
-      y={handle.y - 6}
-      width={12}
-      height={12}
-      rx={3}
-      ry={3}
+function renderSelectionOverlay(
+  box: SelectionOverlayBox,
+  className: string,
+  showRect: boolean,
+  showRotationHandle: boolean
+) {
+  const transform = `translate(${box.centerX} ${box.centerY}) rotate(${box.rotation}) translate(${-box.centerX} ${-box.centerY})`;
+
+  return (
+    <g transform={transform}>
+      {showRect ? <rect x={box.x} y={box.y} width={box.width} height={box.height} className={className} /> : null}
+      {showRotationHandle ? renderRotationHandle(box) : null}
+    </g>
+  );
+}
+function renderRotationHandle(bounds: ReturnType<typeof normalizeRect>) {
+  const centerX = bounds.x + bounds.width / 2;
+  const handleY = bounds.y - ROTATE_HANDLE_OFFSET;
+
+  return (
+    <g className="board-stage__rotate-control">
+      <line
+        className="board-stage__rotate-stem"
+        x1={centerX}
+        y1={bounds.y}
+        x2={centerX}
+        y2={handleY + ROTATE_HANDLE_RADIUS}
+      />
+      <circle className="board-stage__rotate-handle" cx={centerX} cy={handleY} r={ROTATE_HANDLE_RADIUS} />
+      {renderRotationIcon(centerX, handleY)}
+    </g>
+  );
+}
+
+function renderLinearRotationHandle(element: BoardElement) {
+  if (element.type !== 'line' && element.type !== 'arrow') {
+    return null;
+  }
+
+  const geometry = getLinearRotationHandleGeometry(element);
+
+  return (
+    <g className="board-stage__rotate-control">
+      <line
+        className="board-stage__rotate-stem"
+        x1={geometry.mid.x}
+        y1={geometry.mid.y}
+        x2={geometry.stemEnd.x}
+        y2={geometry.stemEnd.y}
+      />
+      <circle className="board-stage__rotate-handle" cx={geometry.handle.x} cy={geometry.handle.y} r={ROTATE_HANDLE_RADIUS} />
+      {renderRotationIcon(geometry.handle.x, geometry.handle.y)}
+    </g>
+  );
+}
+
+function getLinearRotationHandleGeometry(element: LinearElement) {
+  const [startHandle, endHandle] = getVisualLinearHandlePositions(element);
+  const start = { x: startHandle.x, y: startHandle.y };
+  const end = { x: endHandle.x, y: endHandle.y };
+  const mid = {
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2,
+  };
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  const normal =
+    length < 0.001
+      ? { x: 0, y: -1 }
+      : {
+          x: -dy / length,
+          y: dx / length,
+        };
+  const handle = {
+    x: mid.x + normal.x * ROTATE_HANDLE_OFFSET,
+    y: mid.y + normal.y * ROTATE_HANDLE_OFFSET,
+  };
+
+  return {
+    mid,
+    handle,
+    stemEnd: {
+      x: handle.x - normal.x * ROTATE_HANDLE_RADIUS,
+      y: handle.y - normal.y * ROTATE_HANDLE_RADIUS,
+    },
+  };
+}
+
+function renderRotationIcon(centerX: number, centerY: number) {
+  return (
+    <path
+      className="board-stage__rotate-icon"
+      d={`M ${centerX - 3.5} ${centerY - 2.5} A 5 5 0 1 1 ${centerX + 3.8} ${centerY + 4.2} M ${centerX + 3.8} ${centerY + 4.2} L ${centerX + 4.8} ${centerY + 0.2} M ${centerX + 3.8} ${centerY + 4.2} L ${centerX - 0.2} ${centerY + 3.2}`}
     />
-  ));
+  );
 }
 
 export default WhiteboardStage;

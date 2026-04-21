@@ -1,4 +1,4 @@
-﻿import type { BoardElement, BoardPoint, DragHandle, LinearElement } from './types';
+import type { BoardElement, BoardPoint, DragHandle, LinearElement } from './types';
 
 const MIN_BOX_SIZE = 24;
 const FORTY_FIVE_DEGREES = Math.PI / 4;
@@ -20,6 +20,15 @@ export function normalizeRect(x: number, y: number, width: number, height: numbe
     width: Math.abs(width),
     height: Math.abs(height),
   };
+}
+
+export function normalizeRotation(degrees: number) {
+  const normalized = degrees % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
+}
+
+export function hasElementTransform(element: BoardElement) {
+  return Boolean((element.rotation ?? 0) % 360 || element.flipX || element.flipY);
 }
 
 export function isPointInBounds(point: BoardPoint, bounds: ReturnType<typeof normalizeRect>) {
@@ -49,27 +58,89 @@ export function getElementBounds(element: BoardElement) {
     case 'ellipse':
     case 'text':
     case 'image':
-      return normalizeRect(element.x, element.y, element.width, element.height);
+      return withBoundsCenter(normalizeRect(element.x, element.y, element.width, element.height));
     case 'line':
     case 'arrow':
-      return normalizeRect(element.x1, element.y1, element.x2 - element.x1, element.y2 - element.y1);
+      return withBoundsCenter(normalizeRect(element.x1, element.y1, element.x2 - element.x1, element.y2 - element.y1));
     case 'draw': {
+      if (element.points.length === 0) {
+        return withBoundsCenter({ x: 0, y: 0, width: 0, height: 0 });
+      }
+
       const xs = element.points.map((point) => point.x);
       const ys = element.points.map((point) => point.y);
       const minX = Math.min(...xs);
       const maxX = Math.max(...xs);
       const minY = Math.min(...ys);
       const maxY = Math.max(...ys);
-      return {
+      return withBoundsCenter({
         x: minX,
         y: minY,
         width: maxX - minX,
         height: maxY - minY,
-      };
+      });
     }
     default:
-      return { x: 0, y: 0, width: 0, height: 0 };
+      return withBoundsCenter({ x: 0, y: 0, width: 0, height: 0 });
   }
+}
+
+export function getElementCenter(element: BoardElement) {
+  const bounds = getElementBounds(element);
+  return { x: bounds.cx, y: bounds.cy };
+}
+
+export function getTransformedElementBounds(element: BoardElement) {
+  const bounds = getElementBounds(element);
+
+  if (!hasElementTransform(element)) {
+    return bounds;
+  }
+
+  const corners = [
+    { x: bounds.x, y: bounds.y },
+    { x: bounds.x + bounds.width, y: bounds.y },
+    { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+    { x: bounds.x, y: bounds.y + bounds.height },
+  ].map((point) => transformPointAroundCenter(point, { x: bounds.cx, y: bounds.cy }, element));
+  const xs = corners.map((point) => point.x);
+  const ys = corners.map((point) => point.y);
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  const right = Math.max(...xs);
+  const bottom = Math.max(...ys);
+
+  return withBoundsCenter({
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  });
+}
+
+export function getSelectionBounds(elements: BoardElement[]) {
+  if (elements.length === 0) {
+    return null;
+  }
+
+  return elements.reduce<ReturnType<typeof getElementBounds> | null>((bounds, element) => {
+    const current = getTransformedElementBounds(element);
+    if (!bounds) {
+      return current;
+    }
+
+    const left = Math.min(bounds.x, current.x);
+    const top = Math.min(bounds.y, current.y);
+    const right = Math.max(bounds.x + bounds.width, current.x + current.width);
+    const bottom = Math.max(bounds.y + bounds.height, current.y + current.height);
+
+    return withBoundsCenter({
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top,
+    });
+  }, null);
 }
 
 export function hitTestElement(
@@ -80,29 +151,30 @@ export function hitTestElement(
   }
 ) {
   const closedShapeMode = options?.closedShapeMode ?? 'fill';
+  const localPoint = hasElementTransform(element) ? inverseTransformPointAroundCenter(point, getElementCenter(element), element) : point;
 
   switch (element.type) {
     case 'rectangle':
       return closedShapeMode === 'stroke'
-        ? hitTestRectangleStroke(element, point, CLOSED_SHAPE_HIT_TOLERANCE)
-        : hitTestRectangleArea(element, point);
+        ? hitTestRectangleStroke(element, localPoint, CLOSED_SHAPE_HIT_TOLERANCE)
+        : hitTestRectangleArea(element, localPoint);
     case 'ellipse':
       return closedShapeMode === 'stroke'
-        ? hitTestEllipseStroke(element, point, CLOSED_SHAPE_HIT_TOLERANCE)
-        : hitTestEllipseArea(element, point);
+        ? hitTestEllipseStroke(element, localPoint, CLOSED_SHAPE_HIT_TOLERANCE)
+        : hitTestEllipseArea(element, localPoint);
     case 'text':
     case 'image':
-      return isPointInBounds(point, getElementBounds(element));
+      return isPointInBounds(localPoint, getElementBounds(element));
     case 'line':
     case 'arrow':
-      return distanceToSegment(point, { x: element.x1, y: element.y1 }, { x: element.x2, y: element.y2 }) <= LINE_HIT_TOLERANCE;
+      return distanceToSegment(localPoint, { x: element.x1, y: element.y1 }, { x: element.x2, y: element.y2 }) <= LINE_HIT_TOLERANCE;
     case 'draw':
       if (element.points.length === 1) {
-        return Math.hypot(point.x - element.points[0].x, point.y - element.points[0].y) <= 10;
+        return Math.hypot(localPoint.x - element.points[0].x, localPoint.y - element.points[0].y) <= 10;
       }
 
       for (let index = 0; index < element.points.length - 1; index += 1) {
-        if (distanceToSegment(point, element.points[index], element.points[index + 1]) <= 10) {
+        if (distanceToSegment(localPoint, element.points[index], element.points[index + 1]) <= 10) {
           return true;
         }
       }
@@ -138,6 +210,28 @@ export function offsetElement<T extends BoardElement>(element: T, dx: number, dy
   }
 }
 
+export function moveElementBy<T extends BoardElement>(element: T, dx: number, dy: number): T {
+  return offsetElement(element, dx, dy);
+}
+
+export function moveElementCenterTo<T extends BoardElement>(element: T, cx: number, cy: number): T {
+  const currentCenter = getElementCenter(element);
+  return moveElementBy(element, cx - currentCenter.x, cy - currentCenter.y);
+}
+
+export function rotatePointAround(point: BoardPoint, center: BoardPoint, degrees: number) {
+  const radians = (degrees * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+
+  return {
+    x: center.x + dx * cos - dy * sin,
+    y: center.y + dx * sin + dy * cos,
+  };
+}
+
 export function normalizeBoxElement<T extends BoardElement>(element: T): T {
   switch (element.type) {
     case 'rectangle':
@@ -153,13 +247,8 @@ export function normalizeBoxElement<T extends BoardElement>(element: T): T {
 }
 
 export function getSelectionHandlePositions(element: BoardElement) {
-  const bounds = getElementBounds(element);
-  return [
-    { key: 'nw' as DragHandle, x: bounds.x, y: bounds.y },
-    { key: 'ne' as DragHandle, x: bounds.x + bounds.width, y: bounds.y },
-    { key: 'sw' as DragHandle, x: bounds.x, y: bounds.y + bounds.height },
-    { key: 'se' as DragHandle, x: bounds.x + bounds.width, y: bounds.y + bounds.height },
-  ];
+  const bounds = getTransformedElementBounds(element);
+  return getBoundsHandlePositions(bounds);
 }
 
 export function getLinearHandlePositions(element: LinearElement) {
@@ -274,35 +363,13 @@ export function resizeBoxElement(
       height: next.height,
     };
   }
-
-  let left = bounds.x;
-  let right = bounds.x + bounds.width;
-  let top = bounds.y;
-  let bottom = bounds.y + bounds.height;
-
-  if (handle === 'nw' || handle === 'sw') {
-    left = point.x;
-  }
-
-  if (handle === 'ne' || handle === 'se') {
-    right = point.x;
-  }
-
-  if (handle === 'nw' || handle === 'ne') {
-    top = point.y;
-  }
-
-  if (handle === 'sw' || handle === 'se') {
-    bottom = point.y;
-  }
-
-  const next = normalizeRect(left, top, right - left, bottom - top);
+  const next = getResizedBounds(bounds, handle, point);
   return {
     ...element,
     x: next.x,
     y: next.y,
-    width: Math.max(next.width, MIN_BOX_SIZE),
-    height: Math.max(next.height, MIN_BOX_SIZE),
+    width: next.width,
+    height: next.height,
   };
 }
 
@@ -413,29 +480,23 @@ export function getResizedBounds(bounds: ReturnType<typeof normalizeRect>, handl
   let top = bounds.y;
   let bottom = bounds.y + bounds.height;
 
-  if (handle === 'nw' || handle === 'sw') {
-    left = point.x;
+  if (handleAffectsLeft(handle)) {
+    left = Math.min(point.x, right - MIN_BOX_SIZE);
   }
 
-  if (handle === 'ne' || handle === 'se') {
-    right = point.x;
+  if (handleAffectsRight(handle)) {
+    right = Math.max(point.x, left + MIN_BOX_SIZE);
   }
 
-  if (handle === 'nw' || handle === 'ne') {
-    top = point.y;
+  if (handleAffectsTop(handle)) {
+    top = Math.min(point.y, bottom - MIN_BOX_SIZE);
   }
 
-  if (handle === 'sw' || handle === 'se') {
-    bottom = point.y;
+  if (handleAffectsBottom(handle)) {
+    bottom = Math.max(point.y, top + MIN_BOX_SIZE);
   }
 
-  const next = normalizeRect(left, top, right - left, bottom - top);
-  return {
-    x: next.x,
-    y: next.y,
-    width: Math.max(next.width, MIN_BOX_SIZE),
-    height: Math.max(next.height, MIN_BOX_SIZE),
-  };
+  return normalizeRect(left, top, right - left, bottom - top);
 }
 
 function scaleDrawPointsToBounds(
@@ -446,16 +507,64 @@ function scaleDrawPointsToBounds(
   return points.map((point) => mapPointBetweenBounds(point, sourceBounds, targetBounds));
 }
 
+function withBoundsCenter(bounds: ReturnType<typeof normalizeRect>) {
+  return {
+    ...bounds,
+    cx: bounds.x + bounds.width / 2,
+    cy: bounds.y + bounds.height / 2,
+  };
+}
+
+function transformPointAroundCenter(point: BoardPoint, center: BoardPoint, element: BoardElement) {
+  const rotation = normalizeRotation(element.rotation ?? 0);
+  const radians = (rotation * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const scaleX = element.flipX ? -1 : 1;
+  const scaleY = element.flipY ? -1 : 1;
+  const dx = (point.x - center.x) * scaleX;
+  const dy = (point.y - center.y) * scaleY;
+
+  return {
+    x: center.x + dx * cos - dy * sin,
+    y: center.y + dx * sin + dy * cos,
+  };
+}
+
+function inverseTransformPointAroundCenter(point: BoardPoint, center: BoardPoint, element: BoardElement) {
+  const rotation = normalizeRotation(element.rotation ?? 0);
+  const radians = (-rotation * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  const unrotatedX = dx * cos - dy * sin;
+  const unrotatedY = dx * sin + dy * cos;
+
+  return {
+    x: center.x + unrotatedX * (element.flipX ? -1 : 1),
+    y: center.y + unrotatedY * (element.flipY ? -1 : 1),
+  };
+}
+
 function getOppositeCorner(bounds: ReturnType<typeof normalizeRect>, handle: DragHandle) {
   switch (handle) {
     case 'nw':
       return { x: bounds.x + bounds.width, y: bounds.y + bounds.height };
+    case 'n':
+      return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height };
     case 'ne':
       return { x: bounds.x, y: bounds.y + bounds.height };
-    case 'sw':
-      return { x: bounds.x + bounds.width, y: bounds.y };
+    case 'e':
+      return { x: bounds.x, y: bounds.y + bounds.height / 2 };
     case 'se':
       return { x: bounds.x, y: bounds.y };
+    case 's':
+      return { x: bounds.x + bounds.width / 2, y: bounds.y };
+    case 'sw':
+      return { x: bounds.x + bounds.width, y: bounds.y };
+    case 'w':
+      return { x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2 };
     default:
       return { x: bounds.x, y: bounds.y };
   }
@@ -465,15 +574,55 @@ function getHandleDirection(handle: DragHandle) {
   switch (handle) {
     case 'nw':
       return { x: -1, y: -1 };
+    case 'n':
+      return { x: 0, y: -1 };
     case 'ne':
       return { x: 1, y: -1 };
-    case 'sw':
-      return { x: -1, y: 1 };
+    case 'e':
+      return { x: 1, y: 0 };
     case 'se':
       return { x: 1, y: 1 };
+    case 's':
+      return { x: 0, y: 1 };
+    case 'sw':
+      return { x: -1, y: 1 };
+    case 'w':
+      return { x: -1, y: 0 };
     default:
       return { x: 1, y: 1 };
   }
+}
+
+function getBoundsHandlePositions(bounds: ReturnType<typeof normalizeRect>) {
+  const centerX = bounds.x + bounds.width / 2;
+  const centerY = bounds.y + bounds.height / 2;
+
+  return [
+    { key: 'nw' as DragHandle, x: bounds.x, y: bounds.y },
+    { key: 'n' as DragHandle, x: centerX, y: bounds.y },
+    { key: 'ne' as DragHandle, x: bounds.x + bounds.width, y: bounds.y },
+    { key: 'e' as DragHandle, x: bounds.x + bounds.width, y: centerY },
+    { key: 'se' as DragHandle, x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+    { key: 's' as DragHandle, x: centerX, y: bounds.y + bounds.height },
+    { key: 'sw' as DragHandle, x: bounds.x, y: bounds.y + bounds.height },
+    { key: 'w' as DragHandle, x: bounds.x, y: centerY },
+  ];
+}
+
+function handleAffectsLeft(handle: DragHandle) {
+  return handle === 'nw' || handle === 'w' || handle === 'sw';
+}
+
+function handleAffectsRight(handle: DragHandle) {
+  return handle === 'ne' || handle === 'e' || handle === 'se';
+}
+
+function handleAffectsTop(handle: DragHandle) {
+  return handle === 'nw' || handle === 'n' || handle === 'ne';
+}
+
+function handleAffectsBottom(handle: DragHandle) {
+  return handle === 'sw' || handle === 's' || handle === 'se';
 }
 
 function resolveSignedDistance(value: number, magnitude: number, fallbackDirection: number) {

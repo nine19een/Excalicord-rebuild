@@ -17,6 +17,9 @@ type TopToolbarProps = {
   onRedo: () => void;
   canArrangeLayers: boolean;
   onLayerAction: (action: LayerAction) => void;
+  canTransformSelection: boolean;
+  onRotateSelection: (degrees: number) => void;
+  onFlipSelection: (axis: 'horizontal' | 'vertical') => void;
 };
 
 type ToolbarItem = {
@@ -34,6 +37,12 @@ type ToolbarActionItem = {
 type LayerActionItem = {
   key: LayerAction;
   label: string;
+};
+
+type TransformActionItem = {
+  key: 'rotate-left' | 'rotate-right' | 'flip-horizontal' | 'flip-vertical';
+  label: string;
+  onClick: () => void;
 };
 
 const layerActionItems: LayerActionItem[] = [
@@ -76,12 +85,21 @@ function TopToolbar({
   onRedo,
   canArrangeLayers,
   onLayerAction,
+  canTransformSelection,
+  onRotateSelection,
+  onFlipSelection,
 }: TopToolbarProps) {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [isLayerMenuOpen, setIsLayerMenuOpen] = useState(false);
   const actionItems: ToolbarActionItem[] = [
     { key: 'undo', label: '\u64a4\u9500', disabled: !canUndo, onClick: onUndo },
     { key: 'redo', label: '\u91cd\u505a', disabled: !canRedo, onClick: onRedo },
+  ];
+  const transformActionItems: TransformActionItem[] = [
+    { key: 'rotate-left', label: '\u5de6\u8f6c', onClick: () => onRotateSelection(-90) },
+    { key: 'rotate-right', label: '\u53f3\u8f6c', onClick: () => onRotateSelection(90) },
+    { key: 'flip-horizontal', label: '\u6c34\u5e73\u955c\u50cf', onClick: () => onFlipSelection('horizontal') },
+    { key: 'flip-vertical', label: '\u5782\u76f4\u955c\u50cf', onClick: () => onFlipSelection('vertical') },
   ];
 
   const handleImageClick = () => {
@@ -130,6 +148,22 @@ function TopToolbar({
             className="board-toolbar__button"
             onClick={item.onClick}
             disabled={item.disabled}
+          >
+            <ToolbarIcon type={item.key} />
+            <span className="board-toolbar__label">{item.label}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="board-toolbar__group">
+        {transformActionItems.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className="board-toolbar__button"
+            onClick={item.onClick}
+            disabled={!canTransformSelection}
+            title={item.label}
           >
             <ToolbarIcon type={item.key} />
             <span className="board-toolbar__label">{item.label}</span>
@@ -240,7 +274,7 @@ function TopToolbar({
   );
 }
 
-function ToolbarIcon({ type }: { type: ToolType | 'undo' | 'redo' | 'arrange' }) {
+function ToolbarIcon({ type }: { type: ToolType | 'undo' | 'redo' | 'arrange' | TransformActionItem['key'] }) {
   const icon = getToolbarIcon(type);
   return (
     <svg className="board-toolbar__icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -249,7 +283,7 @@ function ToolbarIcon({ type }: { type: ToolType | 'undo' | 'redo' | 'arrange' })
   );
 }
 
-function getToolbarIcon(type: ToolType | 'undo' | 'redo' | 'arrange'): ReactNode {
+function getToolbarIcon(type: ToolType | 'undo' | 'redo' | 'arrange' | TransformActionItem['key']): ReactNode {
   switch (type) {
     case 'hand':
       return <path d="M8 11V5.8a1.4 1.4 0 0 1 2.8 0V10m0 0V4.6a1.4 1.4 0 0 1 2.8 0V10m0 .2V6a1.4 1.4 0 0 1 2.8 0v6.8m0-.2V9.2a1.4 1.4 0 0 1 2.8 0v4.2c0 4.2-2.7 6.6-6.3 6.6h-1.6c-2.2 0-3.5-.8-4.8-2.5L4.4 14.8a1.6 1.6 0 0 1 2.4-2.1L8 14" />;
@@ -277,6 +311,14 @@ function getToolbarIcon(type: ToolType | 'undo' | 'redo' | 'arrange'): ReactNode
       return <path d="M15 7h4v4M19 7l-5.2 5.2A5 5 0 1 1 10.2 4" />;
     case 'arrange':
       return <path d="M7 8h10M7 12h10M7 16h10M10 5l-3 3 3 3M14 19l3-3-3-3" />;
+    case 'rotate-left':
+      return <path d="M8 7H4V3M4.5 7.5A7 7 0 1 1 5.8 16M9 12h6" />;
+    case 'rotate-right':
+      return <path d="M16 7h4V3M19.5 7.5A7 7 0 1 0 18.2 16M9 12h6" />;
+    case 'flip-horizontal':
+      return <path d="M12 4v16M5 7l5 5-5 5V7zM19 7l-5 5 5 5V7z" />;
+    case 'flip-vertical':
+      return <path d="M4 12h16M7 5l5 5 5-5H7zM7 19l5-5 5 5H7z" />;
     default:
       return null;
   }

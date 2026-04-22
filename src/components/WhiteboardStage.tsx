@@ -18,9 +18,13 @@ import type {
   ViewportState,
 } from '../whiteboard/types';
 import {
+  DEFAULT_CORNER_RADIUS,
   DEFAULT_STROKE_STYLE,
+  DEFAULT_FILL_COLOR,
   DEFAULT_STROKE_WIDTH,
+  MAX_CORNER_RADIUS,
   MAX_STROKE_WIDTH,
+  MIN_CORNER_RADIUS,
   MIN_STROKE_WIDTH,
 } from '../whiteboard/types';
 import {
@@ -470,12 +474,7 @@ function WhiteboardStage({
   const getTopElementAtPoint = (point: BoardPoint) => {
     for (let index = elements.length - 1; index >= 0; index -= 1) {
       const element = elements[index];
-      const closedShapeMode =
-        element.type === 'rectangle' || element.type === 'ellipse'
-          ? selectedIds.includes(element.id)
-            ? 'fill'
-            : 'stroke'
-          : undefined;
+      const closedShapeMode = element.type === 'rectangle' || element.type === 'ellipse' ? 'fill' : undefined;
 
       if (hitTestElement(element, point, { closedShapeMode })) {
         return element;
@@ -732,6 +731,8 @@ function WhiteboardStage({
               opacity: clampOpacity(shapeDefaults.opacity),
               strokeWidth: clampStrokeWidth(shapeDefaults.strokeWidth),
               strokeStyle: normalizeStrokeStyle(shapeDefaults.strokeStyle),
+              fillColor: normalizeFillColor(shapeDefaults.fillColor),
+              ...(activeTool === 'rectangle' ? { cornerRadius: clampCornerRadius(shapeDefaults.cornerRadius) } : {}),
             }
           : {
               id: nextId,
@@ -1549,8 +1550,27 @@ function clampStrokeWidth(value: number | undefined) {
     : DEFAULT_STROKE_WIDTH;
 }
 
+function clampCornerRadius(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(MAX_CORNER_RADIUS, Math.max(MIN_CORNER_RADIUS, value))
+    : DEFAULT_CORNER_RADIUS;
+}
+
+function clampCornerRadiusForSize(value: number | undefined, width: number, height: number) {
+  return Math.min(clampCornerRadius(value), Math.max(0, Math.abs(width) / 2), Math.max(0, Math.abs(height) / 2));
+}
+
 function normalizeStrokeStyle(value: unknown) {
   return value === 'dashed' || value === 'dotted' || value === 'solid' ? value : DEFAULT_STROKE_STYLE;
+}
+
+function normalizeFillColor(value: string | null | undefined) {
+  if (value === undefined || value === null) {
+    return DEFAULT_FILL_COLOR;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === '' || normalized === 'none' || normalized === 'transparent' ? DEFAULT_FILL_COLOR : value;
 }
 
 function distributeElementsByOwner(
@@ -1884,7 +1904,8 @@ function renderElementContent(element: BoardElement) {
       );
     case 'rectangle': {
       const box = normalizeRect(element.x, element.y, element.width, element.height);
-      return <rect key={element.id} className="board-element board-element--shape" style={getStrokeElementSvgStyle(element)} {...box} />;
+      const radius = clampCornerRadiusForSize(element.cornerRadius, box.width, box.height);
+      return <rect key={element.id} className="board-element board-element--shape" style={getShapeElementSvgStyle(element)} rx={radius} ry={radius} {...box} />;
     }
     case 'ellipse': {
       const box = normalizeRect(element.x, element.y, element.width, element.height);
@@ -1892,7 +1913,7 @@ function renderElementContent(element: BoardElement) {
         <ellipse
           key={element.id}
           className="board-element board-element--shape"
-          style={getStrokeElementSvgStyle(element)}
+          style={getShapeElementSvgStyle(element)}
           cx={box.x + box.width / 2}
           cy={box.y + box.height / 2}
           rx={box.width / 2}
@@ -1974,6 +1995,13 @@ function getElementStrokeWidth(element: BoardElement) {
   return clampStrokeWidth(element.strokeWidth);
 }
 
+
+function getShapeElementSvgStyle(element: BoardElement) {
+  return {
+    ...getStrokeElementSvgStyle(element),
+    fill: normalizeFillColor(element.fillColor) ?? 'none',
+  };
+}
 function getStrokeElementSvgStyle(element: BoardElement) {
   const strokeWidth = getElementStrokeWidth(element);
   const strokeStyle = normalizeStrokeStyle(element.strokeStyle);
@@ -2318,3 +2346,4 @@ function renderRotationIcon(centerX: number, centerY: number) {
 }
 
 export default WhiteboardStage;
+

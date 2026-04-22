@@ -4,10 +4,14 @@ import type { ColorStyle, LayerAction, StrokeStyle, TextStyle, ToolType } from '
 import {
   BOARD_COLOR_OPTIONS,
   DEFAULT_BOARD_COLOR,
+  DEFAULT_CORNER_RADIUS,
+  DEFAULT_FILL_COLOR,
   DEFAULT_STROKE_STYLE,
   DEFAULT_STROKE_WIDTH,
   DEFAULT_TEXT_STYLE,
+  MAX_CORNER_RADIUS,
   MAX_STROKE_WIDTH,
+  MIN_CORNER_RADIUS,
   MIN_STROKE_WIDTH,
   TEXT_FONT_OPTIONS,
   TEXT_SIZE_OPTIONS,
@@ -28,8 +32,12 @@ type LeftPropertiesPanelProps = {
   onColorChange: (patch: Partial<ColorStyle>, options?: StyleChangeOptions) => void;
   strokeWidth: number | null;
   strokeStyle: StrokeStyle | null;
+  fillColor: string | null | undefined;
+  cornerRadius: number | null;
   onStrokeWidthChange: (value: number, options?: StyleChangeOptions) => void;
   onStrokeStyleChange: (value: StrokeStyle, options?: StyleChangeOptions) => void;
+  onFillColorChange: (value: string | null, options?: StyleChangeOptions) => void;
+  onCornerRadiusChange: (value: number, options?: StyleChangeOptions) => void;
   canTransformSelection: boolean;
   onRotateSelection: (degrees: number) => void;
   onFlipSelection: (axis: 'horizontal' | 'vertical') => void;
@@ -37,10 +45,21 @@ type LeftPropertiesPanelProps = {
   onLayerAction: (action: LayerAction) => void;
 };
 
+type PanelIconName =
+  | 'rotate-left'
+  | 'rotate-right'
+  | 'flip-horizontal'
+  | 'flip-vertical'
+  | 'bring-forward'
+  | 'send-backward'
+  | 'bring-to-front'
+  | 'send-to-back';
+
 type PanelAction = {
   key: string;
   label: string;
   title: string;
+  icon: PanelIconName;
   onClick: () => void;
 };
 
@@ -73,8 +92,12 @@ function LeftPropertiesPanel({
   onColorChange,
   strokeWidth,
   strokeStyle,
+  fillColor,
+  cornerRadius,
   onStrokeWidthChange,
   onStrokeStyleChange,
+  onFillColorChange,
+  onCornerRadiusChange,
   canTransformSelection,
   onRotateSelection,
   onFlipSelection,
@@ -82,10 +105,13 @@ function LeftPropertiesPanel({
   onLayerAction,
 }: LeftPropertiesPanelProps) {
   const customColorInputRef = useRef<HTMLInputElement | null>(null);
+  const customFillColorInputRef = useRef<HTMLInputElement | null>(null);
   const opacityDragRef = useRef(false);
   const latestOpacityRef = useRef(1);
   const strokeWidthDragRef = useRef(false);
   const latestStrokeWidthRef = useRef(DEFAULT_STROKE_WIDTH);
+  const cornerRadiusDragRef = useRef(false);
+  const latestCornerRadiusRef = useRef(DEFAULT_CORNER_RADIUS);
   const hasSelection = selectedCount > 0;
   const isToolMode = !hasSelection && CREATION_TOOL_TYPES.has(activeTool);
   const showTextControls = hasSelection
@@ -97,25 +123,32 @@ function LeftPropertiesPanel({
   const activeColor = colorStyle?.color ?? DEFAULT_BOARD_COLOR;
   const opacityPercent = Math.round(clampOpacity(colorStyle?.opacity) * 100);
   const strokeWidthValue = strokeWidth === null ? DEFAULT_STROKE_WIDTH : clampStrokeWidth(strokeWidth);
+  const cornerRadiusValue = cornerRadius === null ? DEFAULT_CORNER_RADIUS : clampCornerRadius(cornerRadius);
   const strokeStyleValue = strokeStyle ?? DEFAULT_STROKE_STYLE;
+  const fillColorValue = normalizeFillColor(fillColor);
+  const showFillColorControl = fillColor !== undefined;
   const showStrokeStyleControl = strokeStyle !== null;
   const showStrokeWidthControl = strokeWidth !== null;
+  const showCornerRadiusControl = cornerRadius !== null;
   const styleTarget = hasSelection ? 'selection' : 'tool';
   const transformActions: PanelAction[] = [
-    { key: 'rotate-left', label: '\u5de6\u8f6c', title: '\u5de6\u8f6c 90\u00b0', onClick: () => onRotateSelection(-90) },
-    { key: 'rotate-right', label: '\u53f3\u8f6c', title: '\u53f3\u8f6c 90\u00b0', onClick: () => onRotateSelection(90) },
-    { key: 'flip-horizontal', label: '\u6c34\u5e73', title: '\u6c34\u5e73\u955c\u50cf', onClick: () => onFlipSelection('horizontal') },
-    { key: 'flip-vertical', label: '\u5782\u76f4', title: '\u5782\u76f4\u955c\u50cf', onClick: () => onFlipSelection('vertical') },
+    { key: 'rotate-left', label: '\u5de6\u8f6c', title: '\u5de6\u8f6c 90\u00b0', icon: 'rotate-left', onClick: () => onRotateSelection(-90) },
+    { key: 'rotate-right', label: '\u53f3\u8f6c', title: '\u53f3\u8f6c 90\u00b0', icon: 'rotate-right', onClick: () => onRotateSelection(90) },
+    { key: 'flip-horizontal', label: '\u6c34\u5e73\u7ffb\u8f6c', title: '\u6c34\u5e73\u7ffb\u8f6c', icon: 'flip-horizontal', onClick: () => onFlipSelection('horizontal') },
+    { key: 'flip-vertical', label: '\u5782\u76f4\u7ffb\u8f6c', title: '\u5782\u76f4\u7ffb\u8f6c', icon: 'flip-vertical', onClick: () => onFlipSelection('vertical') },
   ];
-  const layerActions: Array<{ key: LayerAction; label: string; title: string }> = [
-    { key: 'bring-forward', label: '\u4e0a\u79fb', title: '\u4e0a\u79fb\u4e00\u5c42' },
-    { key: 'send-backward', label: '\u4e0b\u79fb', title: '\u4e0b\u79fb\u4e00\u5c42' },
-    { key: 'bring-to-front', label: '\u7f6e\u9876', title: '\u7f6e\u4e8e\u9876\u5c42' },
-    { key: 'send-to-back', label: '\u7f6e\u5e95', title: '\u7f6e\u4e8e\u5e95\u5c42' },
+  const layerActions: Array<{ key: LayerAction; label: string; title: string; icon: PanelIconName }> = [
+    { key: 'bring-forward', label: '\u4e0a\u79fb\u4e00\u5c42', title: '\u4e0a\u79fb\u4e00\u5c42', icon: 'bring-forward' },
+    { key: 'send-backward', label: '\u4e0b\u79fb\u4e00\u5c42', title: '\u4e0b\u79fb\u4e00\u5c42', icon: 'send-backward' },
+    { key: 'bring-to-front', label: '\u7f6e\u4e8e\u9876\u5c42', title: '\u7f6e\u4e8e\u9876\u5c42', icon: 'bring-to-front' },
+    { key: 'send-to-back', label: '\u7f6e\u4e8e\u5e95\u5c42', title: '\u7f6e\u4e8e\u5e95\u5c42', icon: 'send-to-back' },
   ];
-
   const handleCustomColorChange = (event: ChangeEvent<HTMLInputElement>) => {
     onColorChange({ color: event.target.value }, { target: styleTarget, commit: true });
+  };
+
+  const handleCustomFillColorChange = (event: ChangeEvent<HTMLInputElement>) => {
+    onFillColorChange(event.target.value, { target: styleTarget, commit: true });
   };
 
   const handleOpacityChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -146,6 +179,21 @@ function LeftPropertiesPanel({
 
     strokeWidthDragRef.current = false;
     onStrokeWidthChange(latestStrokeWidthRef.current, { target: styleTarget, commit: true });
+  };
+
+  const handleCornerRadiusChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextCornerRadius = clampCornerRadius(Number(event.target.value));
+    latestCornerRadiusRef.current = nextCornerRadius;
+    onCornerRadiusChange(nextCornerRadius, { target: styleTarget, commit: false });
+  };
+
+  const finishCornerRadiusChange = () => {
+    if (!cornerRadiusDragRef.current) {
+      return;
+    }
+
+    cornerRadiusDragRef.current = false;
+    onCornerRadiusChange(latestCornerRadiusRef.current, { target: styleTarget, commit: true });
   };
 
   const renderColorPalette = () => (
@@ -183,6 +231,50 @@ function LeftPropertiesPanel({
       />
     </div>
   );
+  const renderFillPalette = () => (
+    <div className="board-properties-panel__palette" aria-label="\u586b\u5145\u8272\u9009\u62e9">
+      <button
+        type="button"
+        className={`board-properties-panel__color-swatch board-properties-panel__color-swatch--none ${fillColorValue === null ? 'board-properties-panel__color-swatch--active' : ''}`}
+        onClick={() => onFillColorChange(null, { target: styleTarget, commit: true })}
+        aria-label="\u65e0\u586b\u5145"
+        title="\u65e0\u586b\u5145"
+      >
+      </button>
+      {EXTENDED_COLOR_OPTIONS.map((color) => {
+        const isActive = fillColorValue === color;
+        return (
+          <button
+            key={`fill-${color}`}
+            type="button"
+            className={`board-properties-panel__color-swatch ${isActive ? 'board-properties-panel__color-swatch--active' : ''}`}
+            style={{ '--swatch-color': color } as CSSProperties}
+            onClick={() => onFillColorChange(color, { target: styleTarget, commit: true })}
+            aria-label={`\u5207\u6362\u586b\u5145\u8272 ${color}`}
+          />
+        );
+      })}
+      <button
+        type="button"
+        className="board-properties-panel__color-swatch board-properties-panel__color-swatch--custom"
+        onClick={() => customFillColorInputRef.current?.click()}
+        aria-label="\u81ea\u5b9a\u4e49\u586b\u5145\u8272"
+        title="\u81ea\u5b9a\u4e49\u586b\u5145\u8272"
+      >
+        +
+      </button>
+      <input
+        ref={customFillColorInputRef}
+        type="color"
+        className="board-properties-panel__color-input"
+        value={fillColorValue ?? DEFAULT_BOARD_COLOR}
+        onChange={handleCustomFillColorChange}
+        aria-hidden="true"
+        tabIndex={-1}
+      />
+    </div>
+  );
+
 
   return (
     <aside className="board-properties-panel" aria-label="\u5c5e\u6027\u680f">
@@ -238,7 +330,18 @@ function LeftPropertiesPanel({
           {showStyleControls ? (
             <section className="board-properties-panel__section">
               <h3 className="board-properties-panel__title">{`\u6837\u5f0f`}</h3>
-              {colorStyle?.color !== undefined ? renderColorPalette() : null}
+              {colorStyle?.color !== undefined ? (
+                <div className="board-properties-panel__field board-properties-panel__subfield">
+                  <span className="board-properties-panel__field-label">{`\u8fb9\u6846`}</span>
+                  {renderColorPalette()}
+                </div>
+              ) : null}
+              {showFillColorControl ? (
+                <div className="board-properties-panel__field board-properties-panel__subfield">
+                  <span className="board-properties-panel__field-label">{`\u586b\u5145`}</span>
+                  {renderFillPalette()}
+                </div>
+              ) : null}
               <label className="board-properties-panel__field">
                 <span className="board-properties-panel__field-label">{`\u900f\u660e\u5ea6`}</span>
                 <input
@@ -281,6 +384,28 @@ function LeftPropertiesPanel({
                   />
                 </label>
               ) : null}
+              {showCornerRadiusControl ? (
+                <label className="board-properties-panel__field">
+                  <span className="board-properties-panel__field-label">{`\u5706\u89d2`}</span>
+                  <input
+                    className="board-properties-panel__range"
+                    type="range"
+                    min={MIN_CORNER_RADIUS}
+                    max={MAX_CORNER_RADIUS}
+                    value={cornerRadiusValue}
+                    onChange={handleCornerRadiusChange}
+                    onPointerDown={() => {
+                      cornerRadiusDragRef.current = true;
+                      latestCornerRadiusRef.current = cornerRadiusValue;
+                    }}
+                    onPointerUp={finishCornerRadiusChange}
+                    onPointerCancel={finishCornerRadiusChange}
+                    onBlur={finishCornerRadiusChange}
+                    onKeyUp={() => onCornerRadiusChange(latestCornerRadiusRef.current, { target: styleTarget, commit: true })}
+                    aria-label="\u5706\u89d2"
+                  />
+                </label>
+              ) : null}
               {showStrokeStyleControl ? (
                 <div className="board-properties-panel__field">
                   <span className="board-properties-panel__field-label">{`\u7ebf\u6761\u6837\u5f0f`}</span>
@@ -289,10 +414,11 @@ function LeftPropertiesPanel({
                       <button
                         key={option.value}
                         type="button"
-                        className={`board-properties-panel__segment ${strokeStyleValue === option.value ? 'board-properties-panel__segment--active' : ''}`}
+                        className={`board-properties-panel__segment board-properties-panel__stroke-style-button ${strokeStyleValue === option.value ? 'board-properties-panel__segment--active' : ''}`}
                         onClick={() => onStrokeStyleChange(option.value, { target: styleTarget, commit: true })}
+                        title={option.label}
                       >
-                        {option.label}
+                        <span className={`board-properties-panel__stroke-preview board-properties-panel__stroke-preview--${option.value}`} aria-hidden="true" />
                       </button>
                     ))}
                   </div>
@@ -321,14 +447,15 @@ function LeftPropertiesPanel({
                       disabled={!canTransformSelection}
                       title={action.title}
                     >
-                      {action.label}
+                      {renderPanelIcon(action.icon)}
+                      <span>{action.label}</span>
                     </button>
                   ))}
                 </div>
               </section>
 
               <section className="board-properties-panel__section">
-                <h3 className="board-properties-panel__title">{`\u6392\u5217`}</h3>
+                <h3 className="board-properties-panel__title">{`\u56fe\u5c42`}</h3>
                 <div className="board-properties-panel__action-grid">
                   {layerActions.map((action) => (
                     <button
@@ -339,7 +466,8 @@ function LeftPropertiesPanel({
                       disabled={!canArrangeLayers}
                       title={action.title}
                     >
-                      {action.label}
+                      {renderPanelIcon(action.icon)}
+                      <span>{action.label}</span>
                     </button>
                   ))}
                 </div>
@@ -352,6 +480,74 @@ function LeftPropertiesPanel({
   );
 }
 
+function renderPanelIcon(name: PanelIconName) {
+  switch (name) {
+    case 'rotate-left':
+      return (
+        <svg className="board-properties-panel__action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 7H4V3" />
+          <path d="M5.2 7.2A7 7 0 1 1 4 11" />
+          <path d="M12 9v4l3 2" />
+        </svg>
+      );
+    case 'rotate-right':
+      return (
+        <svg className="board-properties-panel__action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M16 7h4V3" />
+          <path d="M18.8 7.2A7 7 0 1 0 20 11" />
+          <path d="M12 9v4l-3 2" />
+        </svg>
+      );
+    case 'flip-horizontal':
+      return (
+        <svg className="board-properties-panel__action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4v16" />
+          <path d="M4 7l5 5-5 5V7Z" />
+          <path d="M20 7l-5 5 5 5V7Z" />
+        </svg>
+      );
+    case 'flip-vertical':
+      return (
+        <svg className="board-properties-panel__action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 12h16" />
+          <path d="M7 4l5 5 5-5H7Z" />
+          <path d="M7 20l5-5 5 5H7Z" />
+        </svg>
+      );
+    case 'bring-forward':
+      return (
+        <svg className="board-properties-panel__action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="6" y="9" width="9" height="9" rx="1.5" />
+          <rect x="10" y="5" width="8" height="8" rx="1.5" />
+        </svg>
+      );
+    case 'send-backward':
+      return (
+        <svg className="board-properties-panel__action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="9" y="6" width="9" height="9" rx="1.5" />
+          <rect x="5" y="10" width="8" height="8" rx="1.5" />
+        </svg>
+      );
+    case 'bring-to-front':
+      return (
+        <svg className="board-properties-panel__action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4v7" />
+          <path d="M8.5 7.5 12 4l3.5 3.5" />
+          <rect x="5" y="12" width="14" height="7" rx="1.5" />
+        </svg>
+      );
+    case 'send-to-back':
+      return (
+        <svg className="board-properties-panel__action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 20v-7" />
+          <path d="M8.5 16.5 12 20l3.5-3.5" />
+          <rect x="5" y="5" width="14" height="7" rx="1.5" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
 function clampOpacity(value: number | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? Math.min(1, Math.max(0.1, value)) : 1;
 }
@@ -362,6 +558,21 @@ function clampStrokeWidth(value: number | undefined) {
     : DEFAULT_STROKE_WIDTH;
 }
 
+function clampCornerRadius(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(MAX_CORNER_RADIUS, Math.max(MIN_CORNER_RADIUS, Math.round(value)))
+    : DEFAULT_CORNER_RADIUS;
+}
+
+
+function normalizeFillColor(value: string | null | undefined) {
+  if (value === undefined || value === null) {
+    return DEFAULT_FILL_COLOR;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === '' || normalized === 'none' || normalized === 'transparent' ? DEFAULT_FILL_COLOR : value;
+}
 function getToolDisplayName(tool: ToolType) {
   switch (tool) {
     case 'draw':

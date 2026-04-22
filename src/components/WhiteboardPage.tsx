@@ -24,10 +24,14 @@ import type {
 } from '../whiteboard/types';
 import {
   DEFAULT_BOARD_COLOR,
+  DEFAULT_CORNER_RADIUS,
+  DEFAULT_FILL_COLOR,
   DEFAULT_STROKE_STYLE,
   DEFAULT_STROKE_WIDTH,
   DEFAULT_TEXT_STYLE,
+  MAX_CORNER_RADIUS,
   MAX_STROKE_WIDTH,
+  MIN_CORNER_RADIUS,
   MIN_STROKE_WIDTH,
   FIT_CONTENT_MAX_ZOOM,
   FIT_CONTENT_MIN_ZOOM,
@@ -167,7 +171,7 @@ function WhiteboardPage({
   const [viewport, setViewport] = useState<ViewportState>({ x: 180, y: 120, zoom: 1 });
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
   const [textDefaults, setTextDefaults] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
-  const [shapeDefaults, setShapeDefaults] = useState<ColorStyle>({ color: DEFAULT_BOARD_COLOR, opacity: 1, strokeWidth: DEFAULT_STROKE_WIDTH, strokeStyle: DEFAULT_STROKE_STYLE });
+  const [shapeDefaults, setShapeDefaults] = useState<ColorStyle>({ color: DEFAULT_BOARD_COLOR, opacity: 1, strokeWidth: DEFAULT_STROKE_WIDTH, strokeStyle: DEFAULT_STROKE_STYLE, fillColor: DEFAULT_FILL_COLOR, cornerRadius: DEFAULT_CORNER_RADIUS });
   const [clipboard, setClipboard] = useState<BoardElement[]>([]);
   const [pasteCount, setPasteCount] = useState(0);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
@@ -194,6 +198,7 @@ function WhiteboardPage({
   const recordingTimerRef = useRef<number | null>(null);
   const opacityChangeRef = useRef<{ previousElements: BoardElement[]; targetIds: string[] } | null>(null);
   const strokeWidthChangeRef = useRef<{ previousElements: BoardElement[]; targetIds: string[] } | null>(null);
+  const cornerRadiusChangeRef = useRef<{ previousElements: BoardElement[]; targetIds: string[] } | null>(null);
   const normalViewportBeforeRecordingRef = useRef<ViewportState | null>(null);
 
   const elements = history.present;
@@ -1128,6 +1133,28 @@ function WhiteboardPage({
     [allBoardElements, selectedIds]
   );
 
+
+  const selectedFillElements = useMemo(
+    () => allBoardElements.filter((element) => selectedIds.includes(element.id) && isFillableElement(element)),
+    [allBoardElements, selectedIds]
+  );
+
+  const selectedCornerRadiusElements = useMemo(
+    () => allBoardElements.filter((element) => selectedIds.includes(element.id) && isCornerRadiusEditableElement(element)),
+    [allBoardElements, selectedIds]
+  );
+
+  const toolbarFillColor = useMemo(() => {
+    if (activeTool === 'select') {
+      return selectedFillElements.length > 0 ? normalizeFillColor(selectedFillElements[0].fillColor) : undefined;
+    }
+
+    if (isFillColorTool(activeTool)) {
+      return normalizeFillColor(shapeDefaults.fillColor);
+    }
+
+    return undefined;
+  }, [activeTool, selectedFillElements, shapeDefaults.fillColor]);
   const toolbarStrokeWidth = useMemo(() => {
     if (activeTool === 'select') {
       return selectedStrokeElements.length > 0 ? clampStrokeWidth(selectedStrokeElements[0].strokeWidth) : null;
@@ -1151,6 +1178,18 @@ function WhiteboardPage({
 
     return null;
   }, [activeTool, selectedStrokeElements, shapeDefaults.strokeStyle]);
+
+  const toolbarCornerRadius = useMemo(() => {
+    if (activeTool === 'select') {
+      return selectedCornerRadiusElements.length > 0 ? clampCornerRadius(selectedCornerRadiusElements[0].cornerRadius) : null;
+    }
+
+    if (isCornerRadiusTool(activeTool)) {
+      return clampCornerRadius(shapeDefaults.cornerRadius);
+    }
+
+    return null;
+  }, [activeTool, selectedCornerRadiusElements, shapeDefaults.cornerRadius]);
 
   const toolbarTextStyle = useMemo(() => {
     if (activeTool === 'text') {
@@ -1875,6 +1914,86 @@ function WhiteboardPage({
 
     onElementsChange(nextElements);
   };
+  const handleCornerRadiusChange = (
+    value: number,
+    options: { commit?: boolean; target?: 'selection' | 'tool' } = {}
+  ) => {
+    const normalizedCornerRadius = clampCornerRadius(value);
+    const target = options.target ?? (selectedCornerRadiusElements.length > 0 && activeTool === 'select' ? 'selection' : 'tool');
+    const shouldCommit = options.commit ?? true;
+
+    if (target === 'tool') {
+      if (isCornerRadiusTool(activeTool)) {
+        setShapeDefaults((current) => ({ ...current, cornerRadius: normalizedCornerRadius }));
+      }
+
+      return;
+    }
+
+    if (selectedCornerRadiusElements.length === 0) {
+      return;
+    }
+
+    if (!shouldCommit && !cornerRadiusChangeRef.current) {
+      cornerRadiusChangeRef.current = {
+        previousElements: cloneElements(elements),
+        targetIds: selectedCornerRadiusElements.map((element) => element.id),
+      };
+    }
+
+    const snapshot = cornerRadiusChangeRef.current;
+    const targetIds = snapshot?.targetIds ?? selectedCornerRadiusElements.map((element) => element.id);
+    const selectedElementSet = new Set(targetIds);
+    const nextElements = elements.map((element) =>
+      selectedElementSet.has(element.id) && isCornerRadiusEditableElement(element)
+        ? {
+            ...element,
+            cornerRadius: normalizedCornerRadius,
+          }
+        : element
+    );
+
+    if (shouldCommit) {
+      const previousElements = snapshot?.previousElements ?? cloneElements(elements);
+      cornerRadiusChangeRef.current = null;
+      onCommitElementsChange(previousElements, nextElements);
+      return;
+    }
+
+    onElementsChange(nextElements);
+  };
+
+  const handleFillColorChange = (
+    value: string | null,
+    options: { commit?: boolean; target?: 'selection' | 'tool' } = {}
+  ) => {
+    const normalizedFillColor = normalizeFillColor(value);
+    const target = options.target ?? (selectedFillElements.length > 0 && activeTool === 'select' ? 'selection' : 'tool');
+
+    if (target === 'tool') {
+      if (isFillColorTool(activeTool)) {
+        setShapeDefaults((current) => ({ ...current, fillColor: normalizedFillColor }));
+      }
+
+      return;
+    }
+
+    if (selectedFillElements.length === 0) {
+      return;
+    }
+
+    const selectedElementSet = new Set(selectedFillElements.map((element) => element.id));
+    const nextElements = elements.map((element) =>
+      selectedElementSet.has(element.id) && isFillableElement(element)
+        ? {
+            ...element,
+            fillColor: normalizedFillColor,
+          }
+        : element
+    );
+
+    onCommitElementsChange(elements, nextElements);
+  };
   const handleStrokeStyleChange = (
     value: StrokeStyle,
     options: { commit?: boolean; target?: 'selection' | 'tool' } = {}
@@ -1927,10 +2046,14 @@ function WhiteboardPage({
         colorStyle={toolbarColorStyle}
         strokeWidth={toolbarStrokeWidth}
         strokeStyle={toolbarStrokeStyle}
+        fillColor={toolbarFillColor}
+        cornerRadius={toolbarCornerRadius}
         onTextStyleChange={handleToolbarTextStyleChange}
         onColorChange={handleToolbarColorChange}
         onStrokeWidthChange={handleStrokeWidthChange}
         onStrokeStyleChange={handleStrokeStyleChange}
+        onFillColorChange={handleFillColorChange}
+        onCornerRadiusChange={handleCornerRadiusChange}
         canArrangeLayers={activeTool === 'select' && selectedIds.length > 0}
         onLayerAction={handleLayerAction}
         canTransformSelection={activeTool === 'select' && selectedIds.length > 0}
@@ -2512,7 +2635,8 @@ function renderSlideThumbnailElementContent(element: BoardElement) {
       );
     case 'rectangle': {
       const box = normalizeThumbnailRect(element.x, element.y, element.width, element.height);
-      return <rect key={element.id} className="slide-thumbnail-element slide-thumbnail-element--shape" style={getThumbnailStrokeElementStyle(element)} {...box} />;
+      const radius = clampCornerRadiusForSize(element.cornerRadius, box.width, box.height);
+      return <rect key={element.id} className="slide-thumbnail-element slide-thumbnail-element--shape" style={getThumbnailShapeElementStyle(element)} rx={radius} ry={radius} {...box} />;
     }
     case 'ellipse': {
       const box = normalizeThumbnailRect(element.x, element.y, element.width, element.height);
@@ -2520,7 +2644,7 @@ function renderSlideThumbnailElementContent(element: BoardElement) {
         <ellipse
           key={element.id}
           className="slide-thumbnail-element slide-thumbnail-element--shape"
-          style={getThumbnailStrokeElementStyle(element)}
+          style={getThumbnailShapeElementStyle(element)}
           cx={box.x + box.width / 2}
           cy={box.y + box.height / 2}
           rx={box.width / 2}
@@ -2618,6 +2742,13 @@ function getThumbnailArrowGeometry(element: LinearElement) {
 
 function getElementColor(element: BoardElement) {
   return 'color' in element ? element.color : '#1f2937';
+}
+
+function getThumbnailShapeElementStyle(element: BoardElement) {
+  return {
+    ...getThumbnailStrokeElementStyle(element),
+    fill: normalizeFillColor(element.fillColor) ?? 'none',
+  };
 }
 function getThumbnailStrokeElementStyle(element: BoardElement) {
   const strokeWidth = getCanvasElementStrokeWidth(element);
@@ -3123,17 +3254,30 @@ function drawCanvasElement(context: CanvasRenderingContext2D, element: BoardElem
       break;
     case 'rectangle': {
       const box = normalizeCanvasRect(element.x, element.y, element.width, element.height);
+      const fillColor = normalizeFillColor(element.fillColor);
+      const radius = clampCornerRadiusForSize(element.cornerRadius, box.width, box.height);
+      context.beginPath();
       context.strokeStyle = element.color;
       context.lineWidth = getCanvasElementStrokeWidth(element);
-      context.strokeRect(box.x, box.y, box.width, box.height);
+      addRoundedRectPath(context, box.x, box.y, box.width, box.height, radius);
+      if (fillColor) {
+        context.fillStyle = fillColor;
+        context.fill();
+      }
+      context.stroke();
       break;
     }
     case 'ellipse': {
       const box = normalizeCanvasRect(element.x, element.y, element.width, element.height);
+      const fillColor = normalizeFillColor(element.fillColor);
       context.beginPath();
       context.strokeStyle = element.color;
       context.lineWidth = getCanvasElementStrokeWidth(element);
       context.ellipse(box.x + box.width / 2, box.y + box.height / 2, box.width / 2, box.height / 2, 0, 0, Math.PI * 2);
+      if (fillColor) {
+        context.fillStyle = fillColor;
+        context.fill();
+      }
       context.stroke();
       break;
     }
@@ -3364,8 +3508,27 @@ function clampStrokeWidth(value: number | undefined) {
     ? Math.min(MAX_STROKE_WIDTH, Math.max(MIN_STROKE_WIDTH, Math.round(value)))
     : DEFAULT_STROKE_WIDTH;
 }
+
+function clampCornerRadius(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(MAX_CORNER_RADIUS, Math.max(MIN_CORNER_RADIUS, Math.round(value)))
+    : DEFAULT_CORNER_RADIUS;
+}
+
+function clampCornerRadiusForSize(value: number | undefined, width: number, height: number) {
+  return Math.min(clampCornerRadius(value), Math.max(0, Math.abs(width) / 2), Math.max(0, Math.abs(height) / 2));
+}
 function normalizeStrokeStyle(value: unknown): StrokeStyle {
   return value === 'dashed' || value === 'dotted' || value === 'solid' ? value : DEFAULT_STROKE_STYLE;
+}
+
+function normalizeFillColor(value: string | null | undefined) {
+  if (value === undefined || value === null) {
+    return DEFAULT_FILL_COLOR;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === '' || normalized === 'none' || normalized === 'transparent' ? DEFAULT_FILL_COLOR : value;
 }
 function fitViewportToElements(elements: BoardElement[], viewportWidth: number, viewportHeight: number): ViewportState {
   const contentBounds = getElementsBounds(elements);
@@ -3687,6 +3850,14 @@ function isStrokeWidthTool(tool: ToolType) {
   return isShapeColorTool(tool);
 }
 
+function isFillColorTool(tool: ToolType) {
+  return tool === 'rectangle' || tool === 'ellipse';
+}
+
+function isCornerRadiusTool(tool: ToolType) {
+  return tool === 'rectangle';
+}
+
 function isShapeColorableElement(
   element: BoardElement
 ): element is Extract<BoardElement, { type: 'draw' | 'rectangle' | 'ellipse' | 'line' | 'arrow' }> {
@@ -3709,6 +3880,14 @@ function isStrokeWidthEditableElement(
   element: BoardElement
 ): element is Extract<BoardElement, { type: 'draw' | 'rectangle' | 'ellipse' | 'line' | 'arrow' }> {
   return isShapeColorableElement(element);
+}
+
+function isFillableElement(element: BoardElement): element is Extract<BoardElement, { type: 'rectangle' | 'ellipse' }> {
+  return element.type === 'rectangle' || element.type === 'ellipse';
+}
+
+function isCornerRadiusEditableElement(element: BoardElement): element is Extract<BoardElement, { type: 'rectangle' }> {
+  return element.type === 'rectangle';
 }
 
 export default WhiteboardPage;

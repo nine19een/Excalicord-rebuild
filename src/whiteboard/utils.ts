@@ -1,9 +1,11 @@
+import { DEFAULT_STROKE_WIDTH } from './types';
 import type { BoardElement, BoardPoint, DragHandle, LinearElement } from './types';
 
 const MIN_BOX_SIZE = 24;
 const FORTY_FIVE_DEGREES = Math.PI / 4;
 const LINE_HIT_TOLERANCE = 14;
 const CLOSED_SHAPE_HIT_TOLERANCE = 10;
+const STROKE_HIT_EXTRA_TOLERANCE = 3;
 
 export function generateElementId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -154,31 +156,44 @@ export function hitTestElement(
   const localPoint = hasElementTransform(element) ? inverseTransformPointAroundCenter(point, getElementCenter(element), element) : point;
 
   switch (element.type) {
-    case 'rectangle':
-      return closedShapeMode === 'stroke'
-        ? hitTestRectangleStroke(element, localPoint, CLOSED_SHAPE_HIT_TOLERANCE)
-        : hitTestRectangleArea(element, localPoint);
-    case 'ellipse':
-      return closedShapeMode === 'stroke'
-        ? hitTestEllipseStroke(element, localPoint, CLOSED_SHAPE_HIT_TOLERANCE)
-        : hitTestEllipseArea(element, localPoint);
+    case 'rectangle': {
+      const tolerance = getStrokeHitTolerance(element, CLOSED_SHAPE_HIT_TOLERANCE);
+      const hitsStroke = hitTestRectangleStroke(element, localPoint, tolerance);
+      if (closedShapeMode === 'stroke') {
+        return hitsStroke;
+      }
+      return hitsStroke || (hasVisibleFill(element.fillColor) && hitTestRectangleArea(element, localPoint));
+    }
+    case 'ellipse': {
+      const tolerance = getStrokeHitTolerance(element, CLOSED_SHAPE_HIT_TOLERANCE);
+      const hitsStroke = hitTestEllipseStroke(element, localPoint, tolerance);
+      if (closedShapeMode === 'stroke') {
+        return hitsStroke;
+      }
+      return hitsStroke || (hasVisibleFill(element.fillColor) && hitTestEllipseArea(element, localPoint));
+    }
     case 'text':
     case 'image':
       return isPointInBounds(localPoint, getElementBounds(element));
     case 'line':
     case 'arrow':
-      return distanceToSegment(localPoint, { x: element.x1, y: element.y1 }, { x: element.x2, y: element.y2 }) <= LINE_HIT_TOLERANCE;
-    case 'draw':
+      return (
+        distanceToSegment(localPoint, { x: element.x1, y: element.y1 }, { x: element.x2, y: element.y2 }) <=
+        getStrokeHitTolerance(element, LINE_HIT_TOLERANCE)
+      );
+    case 'draw': {
+      const tolerance = getStrokeHitTolerance(element, LINE_HIT_TOLERANCE);
       if (element.points.length === 1) {
-        return Math.hypot(localPoint.x - element.points[0].x, localPoint.y - element.points[0].y) <= 10;
+        return Math.hypot(localPoint.x - element.points[0].x, localPoint.y - element.points[0].y) <= tolerance;
       }
 
       for (let index = 0; index < element.points.length - 1; index += 1) {
-        if (distanceToSegment(localPoint, element.points[index], element.points[index + 1]) <= 10) {
+        if (distanceToSegment(localPoint, element.points[index], element.points[index + 1]) <= tolerance) {
           return true;
         }
       }
       return false;
+    }
     default:
       return false;
   }
@@ -641,6 +656,24 @@ function getSignedValue(value: number, magnitude: number) {
   return Math.sign(value) * magnitude;
 }
 
+function getElementStrokeWidth(element: BoardElement) {
+  return typeof element.strokeWidth === 'number' && Number.isFinite(element.strokeWidth) && element.strokeWidth > 0
+    ? element.strokeWidth
+    : DEFAULT_STROKE_WIDTH;
+}
+
+function getStrokeHitTolerance(element: BoardElement, baseTolerance: number) {
+  return Math.max(baseTolerance, getElementStrokeWidth(element) / 2) + STROKE_HIT_EXTRA_TOLERANCE;
+}
+
+function hasVisibleFill(fillColor: string | null | undefined) {
+  if (fillColor === undefined || fillColor === null) {
+    return false;
+  }
+
+  const normalized = fillColor.trim().toLowerCase();
+  return normalized !== '' && normalized !== 'none' && normalized !== 'transparent';
+}
 function hitTestRectangleArea(element: Extract<BoardElement, { type: 'rectangle' }>, point: BoardPoint) {
   return isPointInBounds(point, getElementBounds(element));
 }
@@ -740,8 +773,4 @@ function distanceToSegment(point: BoardPoint, start: BoardPoint, end: BoardPoint
 
   return Math.hypot(point.x - projectionX, point.y - projectionY);
 }
-
-
-
-
 

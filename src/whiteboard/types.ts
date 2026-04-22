@@ -30,6 +30,8 @@ export type ColorStyle = {
   opacity?: number;
   strokeWidth?: number;
   strokeStyle?: StrokeStyle;
+  fillColor?: string | null;
+  cornerRadius?: number;
 };
 
 export type LayerAction = 'bring-forward' | 'send-backward' | 'bring-to-front' | 'send-to-back';
@@ -41,6 +43,8 @@ export type ElementTransform = {
   opacity?: number;
   strokeWidth?: number;
   strokeStyle?: StrokeStyle;
+  fillColor?: string | null;
+  cornerRadius?: number;
 };
 
 export type TextStyle = {
@@ -61,6 +65,10 @@ export const DEFAULT_STROKE_WIDTH = 2;
 export const MIN_STROKE_WIDTH = 1;
 export const MAX_STROKE_WIDTH = 12;
 export const DEFAULT_STROKE_STYLE: StrokeStyle = 'solid';
+export const DEFAULT_FILL_COLOR = null;
+export const DEFAULT_CORNER_RADIUS = 0;
+export const MIN_CORNER_RADIUS = 0;
+export const MAX_CORNER_RADIUS = 80;
 
 export const BOARD_COLOR_OPTIONS = [
   '#111827',

@@ -4,7 +4,10 @@ import type { ColorStyle, LayerAction, TextStyle, ToolType } from '../whiteboard
 import {
   BOARD_COLOR_OPTIONS,
   DEFAULT_BOARD_COLOR,
+  DEFAULT_STROKE_WIDTH,
   DEFAULT_TEXT_STYLE,
+  MAX_STROKE_WIDTH,
+  MIN_STROKE_WIDTH,
   TEXT_FONT_OPTIONS,
   TEXT_SIZE_OPTIONS,
 } from '../whiteboard/types';
@@ -22,6 +25,8 @@ type LeftPropertiesPanelProps = {
   colorStyle: ColorStyle | null;
   onTextStyleChange: (patch: Partial<TextStyle>) => void;
   onColorChange: (patch: Partial<ColorStyle>, options?: StyleChangeOptions) => void;
+  strokeWidth: number | null;
+  onStrokeWidthChange: (value: number, options?: StyleChangeOptions) => void;
   canTransformSelection: boolean;
   onRotateSelection: (degrees: number) => void;
   onFlipSelection: (axis: 'horizontal' | 'vertical') => void;
@@ -58,6 +63,8 @@ function LeftPropertiesPanel({
   colorStyle,
   onTextStyleChange,
   onColorChange,
+  strokeWidth,
+  onStrokeWidthChange,
   canTransformSelection,
   onRotateSelection,
   onFlipSelection,
@@ -67,6 +74,8 @@ function LeftPropertiesPanel({
   const customColorInputRef = useRef<HTMLInputElement | null>(null);
   const opacityDragRef = useRef(false);
   const latestOpacityRef = useRef(1);
+  const strokeWidthDragRef = useRef(false);
+  const latestStrokeWidthRef = useRef(DEFAULT_STROKE_WIDTH);
   const hasSelection = selectedCount > 0;
   const isToolMode = !hasSelection && CREATION_TOOL_TYPES.has(activeTool);
   const showTextControls = hasSelection
@@ -77,6 +86,8 @@ function LeftPropertiesPanel({
   const effectiveTextStyle = textStyle ?? DEFAULT_TEXT_STYLE;
   const activeColor = colorStyle?.color ?? DEFAULT_BOARD_COLOR;
   const opacityPercent = Math.round(clampOpacity(colorStyle?.opacity) * 100);
+  const strokeWidthValue = strokeWidth === null ? DEFAULT_STROKE_WIDTH : clampStrokeWidth(strokeWidth);
+  const showStrokeWidthControl = strokeWidth !== null;
   const styleTarget = hasSelection ? 'selection' : 'tool';
   const transformActions: PanelAction[] = [
     { key: 'rotate-left', label: '\u5de6\u8f6c', title: '\u5de6\u8f6c 90\u00b0', onClick: () => onRotateSelection(-90) },
@@ -108,6 +119,21 @@ function LeftPropertiesPanel({
 
     opacityDragRef.current = false;
     onColorChange({ opacity: latestOpacityRef.current }, { target: styleTarget, commit: true });
+  };
+
+  const handleStrokeWidthChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextStrokeWidth = clampStrokeWidth(Number(event.target.value));
+    latestStrokeWidthRef.current = nextStrokeWidth;
+    onStrokeWidthChange(nextStrokeWidth, { target: styleTarget, commit: false });
+  };
+
+  const finishStrokeWidthChange = () => {
+    if (!strokeWidthDragRef.current) {
+      return;
+    }
+
+    strokeWidthDragRef.current = false;
+    onStrokeWidthChange(latestStrokeWidthRef.current, { target: styleTarget, commit: true });
   };
 
   const renderColorPalette = () => (
@@ -221,6 +247,28 @@ function LeftPropertiesPanel({
                   aria-label="\u900f\u660e\u5ea6"
                 />
               </label>
+              {showStrokeWidthControl ? (
+                <label className="board-properties-panel__field">
+                  <span className="board-properties-panel__field-label">{`\u7ebf\u5bbd`}</span>
+                  <input
+                    className="board-properties-panel__range"
+                    type="range"
+                    min={MIN_STROKE_WIDTH}
+                    max={MAX_STROKE_WIDTH}
+                    value={strokeWidthValue}
+                    onChange={handleStrokeWidthChange}
+                    onPointerDown={() => {
+                      strokeWidthDragRef.current = true;
+                      latestStrokeWidthRef.current = strokeWidthValue;
+                    }}
+                    onPointerUp={finishStrokeWidthChange}
+                    onPointerCancel={finishStrokeWidthChange}
+                    onBlur={finishStrokeWidthChange}
+                    onKeyUp={() => onStrokeWidthChange(latestStrokeWidthRef.current, { target: styleTarget, commit: true })}
+                    aria-label="\u7ebf\u5bbd"
+                  />
+                </label>
+              ) : null}
             </section>
           ) : null}
 
@@ -277,6 +325,12 @@ function LeftPropertiesPanel({
 
 function clampOpacity(value: number | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? Math.min(1, Math.max(0.1, value)) : 1;
+}
+
+function clampStrokeWidth(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(MAX_STROKE_WIDTH, Math.max(MIN_STROKE_WIDTH, Math.round(value)))
+    : DEFAULT_STROKE_WIDTH;
 }
 
 function getToolDisplayName(tool: ToolType) {

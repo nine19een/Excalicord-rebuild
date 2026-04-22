@@ -26,6 +26,7 @@ export type DragHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'st
 export type ColorStyle = {
   color?: string;
   opacity?: number;
+  strokeWidth?: number;
 };
 
 export type LayerAction = 'bring-forward' | 'send-backward' | 'bring-to-front' | 'send-to-back';
@@ -35,6 +36,7 @@ export type ElementTransform = {
   flipX?: boolean;
   flipY?: boolean;
   opacity?: number;
+  strokeWidth?: number;
 };
 
 export type TextStyle = {
@@ -51,6 +53,9 @@ export const FIT_CONTENT_MAX_ZOOM = 1.5;
 export const ZOOM_BUTTON_STEP = 0.1;
 
 export const DEFAULT_BOARD_COLOR = '#1f2937';
+export const DEFAULT_STROKE_WIDTH = 2;
+export const MIN_STROKE_WIDTH = 1;
+export const MAX_STROKE_WIDTH = 12;
 
 export const BOARD_COLOR_OPTIONS = [
   '#111827',

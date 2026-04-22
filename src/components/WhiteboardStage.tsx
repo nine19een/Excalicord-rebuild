@@ -18,6 +18,11 @@ import type {
   ViewportState,
 } from '../whiteboard/types';
 import {
+  DEFAULT_STROKE_WIDTH,
+  MAX_STROKE_WIDTH,
+  MIN_STROKE_WIDTH,
+} from '../whiteboard/types';
+import {
   generateElementId,
   getConstrainedBoxFromOrigin,
   getConstrainedLinearPoint,
@@ -37,7 +42,6 @@ import {
   rectContainsBounds,
   rotatePointAround,
 } from '../whiteboard/utils';
-
 type WhiteboardStageProps = {
   activeTool: ToolType;
   elements: BoardElement[];
@@ -698,6 +702,7 @@ function WhiteboardStage({
         points: [point],
         color: shapeDefaults.color ?? '#1f2937',
         opacity: clampOpacity(shapeDefaults.opacity),
+              strokeWidth: clampStrokeWidth(shapeDefaults.strokeWidth),
       };
       onElementsChange([...scopeElements, nextStroke]);
       onSelectedIdsChange([]);
@@ -723,6 +728,7 @@ function WhiteboardStage({
               height: 0,
               color: shapeDefaults.color ?? '#1f2937',
               opacity: clampOpacity(shapeDefaults.opacity),
+              strokeWidth: clampStrokeWidth(shapeDefaults.strokeWidth),
             }
           : {
               id: nextId,
@@ -733,6 +739,7 @@ function WhiteboardStage({
               y2: point.y,
               color: shapeDefaults.color ?? '#1f2937',
               opacity: clampOpacity(shapeDefaults.opacity),
+              strokeWidth: clampStrokeWidth(shapeDefaults.strokeWidth),
             };
 
       onElementsChange([...scopeElements, nextElement]);
@@ -1532,6 +1539,12 @@ function clampOpacity(value: number | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? Math.min(1, Math.max(0.1, value)) : 1;
 }
 
+function clampStrokeWidth(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(MAX_STROKE_WIDTH, Math.max(MIN_STROKE_WIDTH, value))
+    : DEFAULT_STROKE_WIDTH;
+}
+
 function distributeElementsByOwner(
   slides: Slide[],
   freeboardElements: BoardElement[],
@@ -1857,13 +1870,13 @@ function renderElementContent(element: BoardElement) {
         <polyline
           key={element.id}
           className="board-element board-element--stroke"
-          style={{ stroke: getElementColor(element) }}
+          style={{ stroke: getElementColor(element), strokeWidth: getElementStrokeWidth(element) }}
           points={element.points.map((point) => [point.x, point.y].join(',')).join(' ')}
         />
       );
     case 'rectangle': {
       const box = normalizeRect(element.x, element.y, element.width, element.height);
-      return <rect key={element.id} className="board-element board-element--shape" style={{ stroke: getElementColor(element) }} {...box} />;
+      return <rect key={element.id} className="board-element board-element--shape" style={{ stroke: getElementColor(element), strokeWidth: getElementStrokeWidth(element) }} {...box} />;
     }
     case 'ellipse': {
       const box = normalizeRect(element.x, element.y, element.width, element.height);
@@ -1871,7 +1884,7 @@ function renderElementContent(element: BoardElement) {
         <ellipse
           key={element.id}
           className="board-element board-element--shape"
-          style={{ stroke: getElementColor(element) }}
+          style={{ stroke: getElementColor(element), strokeWidth: getElementStrokeWidth(element) }}
           cx={box.x + box.width / 2}
           cy={box.y + box.height / 2}
           rx={box.width / 2}
@@ -1884,7 +1897,7 @@ function renderElementContent(element: BoardElement) {
         <line
           key={element.id}
           className="board-element board-element--line"
-          style={{ stroke: getElementColor(element) }}
+          style={{ stroke: getElementColor(element), strokeWidth: getElementStrokeWidth(element) }}
           x1={element.x1}
           y1={element.y1}
           x2={element.x2}
@@ -1897,7 +1910,7 @@ function renderElementContent(element: BoardElement) {
         <g key={element.id}>
           <line
             className="board-element board-element--line board-element--arrow-shaft"
-            style={{ stroke: getElementColor(element) }}
+            style={{ stroke: getElementColor(element), strokeWidth: getElementStrokeWidth(element) }}
             x1={element.x1}
             y1={element.y1}
             x2={shaftEnd?.x ?? element.x2}
@@ -1949,6 +1962,10 @@ function getElementOpacity(element: BoardElement) {
   return clampOpacity(element.opacity);
 }
 
+function getElementStrokeWidth(element: BoardElement) {
+  return clampStrokeWidth(element.strokeWidth);
+}
+
 function renderPreviewOverlay(element: BoardElement) {
   const bounds = getTransformedElementBounds(element);
 
@@ -1970,7 +1987,13 @@ function renderArrowHead(element: LinearElement, className: string, color?: stri
     return null;
   }
 
-  return <polygon className={className} points={geometry.points} style={color ? { fill: color, stroke: color } : undefined} />;
+  return (
+    <polygon
+      className={className}
+      points={geometry.points}
+      style={color ? { fill: color, stroke: color, strokeWidth: Math.max(0.75, getElementStrokeWidth(element) * 0.35) } : undefined}
+    />
+  );
 }
 
 function getArrowShaftEnd(element: LinearElement) {
@@ -1990,8 +2013,9 @@ function getArrowHeadGeometry(element: LinearElement) {
   const unitY = dy / length;
   const normalX = -unitY;
   const normalY = unitX;
-  const headLength = 15;
-  const headHalfWidth = 7.5;
+  const strokeWidth = clampStrokeWidth(element.strokeWidth);
+  const headLength = 10 + strokeWidth * 2.5;
+  const headHalfWidth = 5 + strokeWidth * 1.25;
   const baseX = element.x2 - unitX * headLength;
   const baseY = element.y2 - unitY * headLength;
   const leftX = baseX + normalX * headHalfWidth;

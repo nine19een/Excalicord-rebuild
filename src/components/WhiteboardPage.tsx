@@ -23,7 +23,10 @@ import type {
 } from '../whiteboard/types';
 import {
   DEFAULT_BOARD_COLOR,
+  DEFAULT_STROKE_WIDTH,
   DEFAULT_TEXT_STYLE,
+  MAX_STROKE_WIDTH,
+  MIN_STROKE_WIDTH,
   FIT_CONTENT_MAX_ZOOM,
   FIT_CONTENT_MIN_ZOOM,
   MAX_VIEWPORT_ZOOM,
@@ -162,7 +165,7 @@ function WhiteboardPage({
   const [viewport, setViewport] = useState<ViewportState>({ x: 180, y: 120, zoom: 1 });
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
   const [textDefaults, setTextDefaults] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
-  const [shapeDefaults, setShapeDefaults] = useState<ColorStyle>({ color: DEFAULT_BOARD_COLOR, opacity: 1 });
+  const [shapeDefaults, setShapeDefaults] = useState<ColorStyle>({ color: DEFAULT_BOARD_COLOR, opacity: 1, strokeWidth: DEFAULT_STROKE_WIDTH });
   const [clipboard, setClipboard] = useState<BoardElement[]>([]);
   const [pasteCount, setPasteCount] = useState(0);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
@@ -188,6 +191,7 @@ function WhiteboardPage({
   const recordingAccumulatedMsRef = useRef(0);
   const recordingTimerRef = useRef<number | null>(null);
   const opacityChangeRef = useRef<{ previousElements: BoardElement[]; targetIds: string[] } | null>(null);
+  const strokeWidthChangeRef = useRef<{ previousElements: BoardElement[]; targetIds: string[] } | null>(null);
   const normalViewportBeforeRecordingRef = useRef<ViewportState | null>(null);
 
   const elements = history.present;
@@ -1113,6 +1117,23 @@ function WhiteboardPage({
     };
   }, [selectedColorElements, selectedElements]);
 
+  const selectedStrokeElements = useMemo(
+    () => allBoardElements.filter((element) => selectedIds.includes(element.id) && isStrokeWidthEditableElement(element)),
+    [allBoardElements, selectedIds]
+  );
+
+  const toolbarStrokeWidth = useMemo(() => {
+    if (activeTool === 'select') {
+      return selectedStrokeElements.length > 0 ? clampStrokeWidth(selectedStrokeElements[0].strokeWidth) : null;
+    }
+
+    if (isStrokeWidthTool(activeTool)) {
+      return clampStrokeWidth(shapeDefaults.strokeWidth);
+    }
+
+    return null;
+  }, [activeTool, selectedStrokeElements, shapeDefaults.strokeWidth]);
+
   const toolbarTextStyle = useMemo(() => {
     if (activeTool === 'text') {
       return selectedTextElement ?? textDefaults;
@@ -1788,6 +1809,54 @@ function WhiteboardPage({
     onCommitElementsChange(elements, nextElements);
   };
 
+  const handleStrokeWidthChange = (
+    value: number,
+    options: { commit?: boolean; target?: 'selection' | 'tool' } = {}
+  ) => {
+    const normalizedStrokeWidth = clampStrokeWidth(value);
+    const target = options.target ?? (selectedStrokeElements.length > 0 && activeTool === 'select' ? 'selection' : 'tool');
+    const shouldCommit = options.commit ?? true;
+
+    if (target === 'tool') {
+      if (isStrokeWidthTool(activeTool)) {
+        setShapeDefaults((current) => ({ ...current, strokeWidth: normalizedStrokeWidth }));
+      }
+
+      return;
+    }
+
+    if (selectedStrokeElements.length === 0) {
+      return;
+    }
+
+    if (!shouldCommit && !strokeWidthChangeRef.current) {
+      strokeWidthChangeRef.current = {
+        previousElements: cloneElements(elements),
+        targetIds: selectedStrokeElements.map((element) => element.id),
+      };
+    }
+
+    const snapshot = strokeWidthChangeRef.current;
+    const targetIds = snapshot?.targetIds ?? selectedStrokeElements.map((element) => element.id);
+    const selectedElementSet = new Set(targetIds);
+    const nextElements = elements.map((element) =>
+      selectedElementSet.has(element.id) && isStrokeWidthEditableElement(element)
+        ? {
+            ...element,
+            strokeWidth: normalizedStrokeWidth,
+          }
+        : element
+    );
+
+    if (shouldCommit) {
+      const previousElements = snapshot?.previousElements ?? cloneElements(elements);
+      strokeWidthChangeRef.current = null;
+      onCommitElementsChange(previousElements, nextElements);
+      return;
+    }
+
+    onElementsChange(nextElements);
+  };
   const recordingElapsedLabel = formatRecordingElapsed(recordingElapsedMs);
 
   return (
@@ -1807,8 +1876,10 @@ function WhiteboardPage({
         hasTextSelection={Boolean(selectedTextElement)}
         textStyle={toolbarTextStyle}
         colorStyle={toolbarColorStyle}
+        strokeWidth={toolbarStrokeWidth}
         onTextStyleChange={handleToolbarTextStyleChange}
         onColorChange={handleToolbarColorChange}
+        onStrokeWidthChange={handleStrokeWidthChange}
         canArrangeLayers={activeTool === 'select' && selectedIds.length > 0}
         onLayerAction={handleLayerAction}
         canTransformSelection={activeTool === 'select' && selectedIds.length > 0}
@@ -2384,13 +2455,13 @@ function renderSlideThumbnailElementContent(element: BoardElement) {
         <polyline
           key={element.id}
           className="slide-thumbnail-element slide-thumbnail-element--stroke"
-          style={{ stroke: getElementColor(element) }}
+          style={{ stroke: getElementColor(element), strokeWidth: getCanvasElementStrokeWidth(element) }}
           points={element.points.map((point) => [point.x, point.y].join(',')).join(' ')}
         />
       );
     case 'rectangle': {
       const box = normalizeThumbnailRect(element.x, element.y, element.width, element.height);
-      return <rect key={element.id} className="slide-thumbnail-element slide-thumbnail-element--shape" style={{ stroke: getElementColor(element) }} {...box} />;
+      return <rect key={element.id} className="slide-thumbnail-element slide-thumbnail-element--shape" style={{ stroke: getElementColor(element), strokeWidth: getCanvasElementStrokeWidth(element) }} {...box} />;
     }
     case 'ellipse': {
       const box = normalizeThumbnailRect(element.x, element.y, element.width, element.height);
@@ -2398,7 +2469,7 @@ function renderSlideThumbnailElementContent(element: BoardElement) {
         <ellipse
           key={element.id}
           className="slide-thumbnail-element slide-thumbnail-element--shape"
-          style={{ stroke: getElementColor(element) }}
+          style={{ stroke: getElementColor(element), strokeWidth: getCanvasElementStrokeWidth(element) }}
           cx={box.x + box.width / 2}
           cy={box.y + box.height / 2}
           rx={box.width / 2}
@@ -2411,7 +2482,7 @@ function renderSlideThumbnailElementContent(element: BoardElement) {
         <line
           key={element.id}
           className="slide-thumbnail-element slide-thumbnail-element--line"
-          style={{ stroke: getElementColor(element) }}
+          style={{ stroke: getElementColor(element), strokeWidth: getCanvasElementStrokeWidth(element) }}
           x1={element.x1}
           y1={element.y1}
           x2={element.x2}
@@ -2424,13 +2495,13 @@ function renderSlideThumbnailElementContent(element: BoardElement) {
         <g key={element.id}>
           <line
             className="slide-thumbnail-element slide-thumbnail-element--line slide-thumbnail-element--arrow-shaft"
-            style={{ stroke: getElementColor(element) }}
+            style={{ stroke: getElementColor(element), strokeWidth: getCanvasElementStrokeWidth(element) }}
             x1={element.x1}
             y1={element.y1}
             x2={geometry?.shaftEnd.x ?? element.x2}
             y2={geometry?.shaftEnd.y ?? element.y2}
           />
-          {geometry ? <polygon className="slide-thumbnail-element--arrowhead" points={geometry.points} style={{ fill: getElementColor(element), stroke: getElementColor(element) }} /> : null}
+          {geometry ? <polygon className="slide-thumbnail-element--arrowhead" points={geometry.points} style={{ fill: getElementColor(element), stroke: getElementColor(element), strokeWidth: Math.max(0.75, getCanvasElementStrokeWidth(element) * 0.35) }} /> : null}
         </g>
       );
     }
@@ -2478,8 +2549,9 @@ function getThumbnailArrowGeometry(element: LinearElement) {
   const unitY = dy / length;
   const normalX = -unitY;
   const normalY = unitX;
-  const headLength = 15;
-  const headHalfWidth = 7.5;
+  const strokeWidth = getCanvasElementStrokeWidth(element);
+  const headLength = 10 + strokeWidth * 2.5;
+  const headHalfWidth = 5 + strokeWidth * 1.25;
   const baseX = element.x2 - unitX * headLength;
   const baseY = element.y2 - unitY * headLength;
   const leftX = baseX + normalX * headHalfWidth;
@@ -2954,7 +3026,7 @@ function drawCanvasElement(context: CanvasRenderingContext2D, element: BoardElem
       if (element.points.length > 0) {
         context.beginPath();
         context.strokeStyle = element.color;
-        context.lineWidth = 3;
+        context.lineWidth = getCanvasElementStrokeWidth(element);
         context.moveTo(element.points[0].x, element.points[0].y);
         element.points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
         context.stroke();
@@ -2963,7 +3035,7 @@ function drawCanvasElement(context: CanvasRenderingContext2D, element: BoardElem
     case 'rectangle': {
       const box = normalizeCanvasRect(element.x, element.y, element.width, element.height);
       context.strokeStyle = element.color;
-      context.lineWidth = 2.5;
+      context.lineWidth = getCanvasElementStrokeWidth(element);
       context.strokeRect(box.x, box.y, box.width, box.height);
       break;
     }
@@ -2971,13 +3043,13 @@ function drawCanvasElement(context: CanvasRenderingContext2D, element: BoardElem
       const box = normalizeCanvasRect(element.x, element.y, element.width, element.height);
       context.beginPath();
       context.strokeStyle = element.color;
-      context.lineWidth = 2.5;
+      context.lineWidth = getCanvasElementStrokeWidth(element);
       context.ellipse(box.x + box.width / 2, box.y + box.height / 2, box.width / 2, box.height / 2, 0, 0, Math.PI * 2);
       context.stroke();
       break;
     }
     case 'line':
-      drawCanvasLine(context, element.x1, element.y1, element.x2, element.y2, element.color);
+      drawCanvasLine(context, element.x1, element.y1, element.x2, element.y2, element.color, getCanvasElementStrokeWidth(element));
       break;
     case 'arrow':
       drawCanvasArrow(context, element);
@@ -2993,6 +3065,10 @@ function drawCanvasElement(context: CanvasRenderingContext2D, element: BoardElem
   }
 
   context.restore();
+}
+
+function getCanvasElementStrokeWidth(element: BoardElement) {
+  return clampStrokeWidth(element.strokeWidth);
 }
 
 function applyCanvasElementTransform(context: CanvasRenderingContext2D, element: BoardElement) {
@@ -3011,10 +3087,10 @@ function applyCanvasElementTransform(context: CanvasRenderingContext2D, element:
   context.translate(-bounds.cx, -bounds.cy);
 }
 
-function drawCanvasLine(context: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string) {
+function drawCanvasLine(context: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, strokeWidth: number) {
   context.beginPath();
   context.strokeStyle = color;
-  context.lineWidth = 2.5;
+  context.lineWidth = strokeWidth;
   context.moveTo(x1, y1);
   context.lineTo(x2, y2);
   context.stroke();
@@ -3022,7 +3098,7 @@ function drawCanvasLine(context: CanvasRenderingContext2D, x1: number, y1: numbe
 
 function drawCanvasArrow(context: CanvasRenderingContext2D, element: LinearElement) {
   const geometry = getCanvasArrowGeometry(element);
-  drawCanvasLine(context, element.x1, element.y1, geometry?.shaftEnd.x ?? element.x2, geometry?.shaftEnd.y ?? element.y2, element.color);
+  drawCanvasLine(context, element.x1, element.y1, geometry?.shaftEnd.x ?? element.x2, geometry?.shaftEnd.y ?? element.y2, element.color, getCanvasElementStrokeWidth(element));
 
   if (!geometry) {
     return;
@@ -3031,7 +3107,7 @@ function drawCanvasArrow(context: CanvasRenderingContext2D, element: LinearEleme
   context.beginPath();
   context.fillStyle = element.color;
   context.strokeStyle = element.color;
-  context.lineWidth = 0.75;
+  context.lineWidth = Math.max(0.75, getCanvasElementStrokeWidth(element) * 0.35);
   context.moveTo(element.x2, element.y2);
   context.lineTo(geometry.left.x, geometry.left.y);
   context.lineTo(geometry.right.x, geometry.right.y);
@@ -3053,8 +3129,9 @@ function getCanvasArrowGeometry(element: LinearElement) {
   const unitY = dy / length;
   const normalX = -unitY;
   const normalY = unitX;
-  const headLength = 15;
-  const headHalfWidth = 7.5;
+  const strokeWidth = getCanvasElementStrokeWidth(element);
+  const headLength = 10 + strokeWidth * 2.5;
+  const headHalfWidth = 5 + strokeWidth * 1.25;
   const baseX = element.x2 - unitX * headLength;
   const baseY = element.y2 - unitY * headLength;
 
@@ -3174,6 +3251,12 @@ function clampZoom(value: number, min: number, max: number) {
 
 function clampOpacity(value: number | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? Math.min(1, Math.max(0.1, value)) : 1;
+}
+
+function clampStrokeWidth(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(MAX_STROKE_WIDTH, Math.max(MIN_STROKE_WIDTH, Math.round(value)))
+    : DEFAULT_STROKE_WIDTH;
 }
 
 function fitViewportToElements(elements: BoardElement[], viewportWidth: number, viewportHeight: number): ViewportState {
@@ -3492,6 +3575,10 @@ function isShapeColorTool(tool: ToolType) {
   return tool === 'draw' || tool === 'rectangle' || tool === 'ellipse' || tool === 'line' || tool === 'arrow';
 }
 
+function isStrokeWidthTool(tool: ToolType) {
+  return isShapeColorTool(tool);
+}
+
 function isShapeColorableElement(
   element: BoardElement
 ): element is Extract<BoardElement, { type: 'draw' | 'rectangle' | 'ellipse' | 'line' | 'arrow' }> {
@@ -3508,6 +3595,12 @@ function isColorEditableElement(
   element: BoardElement
 ): element is Extract<BoardElement, { type: 'draw' | 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text' }> {
   return isShapeColorableElement(element) || element.type === 'text';
+}
+
+function isStrokeWidthEditableElement(
+  element: BoardElement
+): element is Extract<BoardElement, { type: 'draw' | 'rectangle' | 'ellipse' | 'line' | 'arrow' }> {
+  return isShapeColorableElement(element);
 }
 
 export default WhiteboardPage;

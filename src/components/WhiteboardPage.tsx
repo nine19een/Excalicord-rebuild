@@ -1,6 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FloatingControlBar from './FloatingControlBar';
+import LeftPropertiesPanel from './LeftPropertiesPanel';
 import TeleprompterPanel, { DEFAULT_TELEPROMPTER_STATE, type TeleprompterPanelState } from './TeleprompterPanel';
 import TopToolbar from './TopToolbar';
 import WhiteboardStage from './WhiteboardStage';
@@ -161,7 +162,7 @@ function WhiteboardPage({
   const [viewport, setViewport] = useState<ViewportState>({ x: 180, y: 120, zoom: 1 });
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
   const [textDefaults, setTextDefaults] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
-  const [shapeDefaults, setShapeDefaults] = useState<ColorStyle>({ color: DEFAULT_BOARD_COLOR });
+  const [shapeDefaults, setShapeDefaults] = useState<ColorStyle>({ color: DEFAULT_BOARD_COLOR, opacity: 1 });
   const [clipboard, setClipboard] = useState<BoardElement[]>([]);
   const [pasteCount, setPasteCount] = useState(0);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
@@ -186,6 +187,7 @@ function WhiteboardPage({
   const recordingStartedAtRef = useRef<number | null>(null);
   const recordingAccumulatedMsRef = useRef(0);
   const recordingTimerRef = useRef<number | null>(null);
+  const opacityChangeRef = useRef<{ previousElements: BoardElement[]; targetIds: string[] } | null>(null);
   const normalViewportBeforeRecordingRef = useRef<ViewportState | null>(null);
 
   const elements = history.present;
@@ -1068,6 +1070,7 @@ function WhiteboardPage({
       height,
       src,
       fileName: file.name,
+      opacity: clampOpacity(shapeDefaults.opacity),
     };
 
     const nextElements = [...elements, nextElement];
@@ -1100,12 +1103,15 @@ function WhiteboardPage({
   );
 
   const selectedColorStyle = useMemo(() => {
-    if (selectedColorElements.length === 0) {
+    if (selectedElements.length === 0) {
       return null;
     }
 
-    return { color: selectedColorElements[0].color };
-  }, [selectedColorElements]);
+    return {
+      color: selectedColorElements[0]?.color,
+      opacity: clampOpacity(selectedElements[0].opacity),
+    };
+  }, [selectedColorElements, selectedElements]);
 
   const toolbarTextStyle = useMemo(() => {
     if (activeTool === 'text') {
@@ -1121,11 +1127,12 @@ function WhiteboardPage({
 
   const toolbarColorStyle = useMemo(() => {
     if (activeTool === 'text') {
-      return { color: (selectedTextElement ?? textDefaults).color };
+      const textStyle = selectedTextElement ?? textDefaults;
+      return { color: textStyle.color, opacity: clampOpacity(textStyle.opacity) };
     }
 
     if (isColorTool(activeTool)) {
-      return shapeDefaults;
+      return { ...shapeDefaults, opacity: clampOpacity(shapeDefaults.opacity) };
     }
 
     if (activeTool === 'select') {
@@ -1698,39 +1705,82 @@ function WhiteboardPage({
       setRecordingError('Recording could not be started in this browser.');
     }
   }, [activeSlideId, elements, getCurrentRecordingFrame, microphoneStream, recordingTarget, resetRecordingTimer, restoreNormalViewport, stageSlides, startRecordingTimer, viewport]);
-  const handleToolbarColorChange = (patch: Partial<ColorStyle>) => {
-    if (!patch.color) {
+  const handleToolbarColorChange = (
+    patch: Partial<ColorStyle>,
+    options: { commit?: boolean; target?: 'selection' | 'tool' } = {}
+  ) => {
+    const hasColorPatch = patch.color !== undefined;
+    const hasOpacityPatch = patch.opacity !== undefined;
+
+    if (!hasColorPatch && !hasOpacityPatch) {
       return;
     }
 
-    if (activeTool === 'text') {
-      setTextDefaults((current) => ({ ...current, color: patch.color! }));
+    const target = options.target ?? (selectedElements.length > 0 && activeTool === 'select' ? 'selection' : 'tool');
+    const shouldCommit = options.commit ?? true;
+    const normalizedPatch: Partial<ColorStyle> = {
+      ...(hasColorPatch ? { color: patch.color } : {}),
+      ...(hasOpacityPatch ? { opacity: clampOpacity(patch.opacity) } : {}),
+    };
+
+    if (target === 'tool') {
+      if (activeTool === 'text') {
+        setTextDefaults((current) => ({ ...current, ...normalizedPatch }));
+        return;
+      }
+
+      if (isShapeColorTool(activeTool)) {
+        setShapeDefaults((current) => ({ ...current, ...normalizedPatch }));
+      }
+
       return;
     }
 
-    if (isShapeColorTool(activeTool)) {
-      setShapeDefaults((current) => ({ ...current, color: patch.color! }));
+    if (selectedElements.length === 0) {
       return;
     }
 
-    if (selectedColorElements.length === 0) {
+    if (hasOpacityPatch) {
+      if (!shouldCommit && !opacityChangeRef.current) {
+        opacityChangeRef.current = {
+          previousElements: cloneElements(elements),
+          targetIds: selectedElements.map((element) => element.id),
+        };
+      }
+
+      const snapshot = opacityChangeRef.current;
+      const targetIds = snapshot?.targetIds ?? selectedElements.map((element) => element.id);
+      const selectedElementSet = new Set(targetIds);
+      const nextElements = elements.map((element) =>
+        selectedElementSet.has(element.id)
+          ? {
+              ...element,
+              opacity: normalizedPatch.opacity,
+            }
+          : element
+      );
+
+      if (shouldCommit) {
+        const previousElements = snapshot?.previousElements ?? cloneElements(elements);
+        opacityChangeRef.current = null;
+        onCommitElementsChange(previousElements, nextElements);
+        return;
+      }
+
+      onElementsChange(nextElements);
       return;
-    }
-
-    if (selectedColorElements.some((element) => element.type === 'text')) {
-      setTextDefaults((current) => ({ ...current, color: patch.color! }));
-    }
-
-    if (selectedColorElements.some((element) => isShapeColorableElement(element))) {
-      setShapeDefaults((current) => ({ ...current, color: patch.color! }));
     }
 
     const selectedColorIds = new Set(selectedColorElements.map((element) => element.id));
+    if (selectedColorIds.size === 0) {
+      return;
+    }
+
     const nextElements = elements.map((element) =>
       selectedColorIds.has(element.id) && isColorEditableElement(element)
         ? {
             ...element,
-            ...patch,
+            color: patch.color!,
           }
         : element
     );
@@ -1746,14 +1796,19 @@ function WhiteboardPage({
         activeTool={activeTool}
         onToolChange={setActiveTool}
         onInsertImage={handleInsertImage}
-        textStyle={toolbarTextStyle}
-        colorStyle={toolbarColorStyle}
         canUndo={history.past.length > 0}
         canRedo={history.future.length > 0}
-        onTextStyleChange={handleToolbarTextStyleChange}
-        onColorChange={handleToolbarColorChange}
         onUndo={undo}
         onRedo={redo}
+      />
+      <LeftPropertiesPanel
+        activeTool={activeTool}
+        selectedCount={selectedIds.length}
+        hasTextSelection={Boolean(selectedTextElement)}
+        textStyle={toolbarTextStyle}
+        colorStyle={toolbarColorStyle}
+        onTextStyleChange={handleToolbarTextStyleChange}
+        onColorChange={handleToolbarColorChange}
         canArrangeLayers={activeTool === 'select' && selectedIds.length > 0}
         onLayerAction={handleLayerAction}
         canTransformSelection={activeTool === 'select' && selectedIds.length > 0}
@@ -2103,8 +2158,22 @@ function SlideNavigator({
 
   return (
     <aside className="slide-navigator" aria-label="Slide navigation">
+      <div className="slide-navigator__header">
+        <h2 className="slide-navigator__title">{`\u5e7b\u706f\u7247`}</h2>
+      </div>
       <div className="slide-navigator__list">
-        {slides.map((slide, index) => {
+        {slides.length === 0 ? (
+          <button
+            type="button"
+            className="slide-navigator__empty"
+            onClick={onAddSlide}
+            disabled={isStructureLocked}
+            title={lockedTitle}
+          >
+            <span className="slide-navigator__empty-plus">+</span>
+            <span>{`\u70b9\u51fb\u6b64\u5904\u6dfb\u52a0\u7b2c\u4e00\u5f20\u5e7b\u706f\u7247`}</span>
+          </button>
+        ) : slides.map((slide, index) => {
           const isActive = slide.id === activeSlideId;
           const isEditing = editingSlideId === slide.id;
           return (
@@ -2256,15 +2325,17 @@ function SlideNavigator({
           );
         })}
       </div>
-      <button
-        type="button"
-        className="slide-navigator__add"
-        onClick={onAddSlide}
-        disabled={isStructureLocked}
-        title={lockedTitle}
-      >
-        +
-      </button>
+      {slides.length > 0 ? (
+        <button
+          type="button"
+          className="slide-navigator__add"
+          onClick={onAddSlide}
+          disabled={isStructureLocked}
+          title={lockedTitle}
+        >
+          +
+        </button>
+      ) : null}
     </aside>
   );
 }
@@ -2287,7 +2358,7 @@ function SlideThumbnail({ slide }: { slide: Slide }) {
 
 function renderSlideThumbnailElement(element: BoardElement) {
   return (
-    <g key={element.id} transform={getSvgElementTransform(element)}>
+    <g key={element.id} transform={getSvgElementTransform(element)} opacity={clampOpacity(element.opacity)}>
       {renderSlideThumbnailElementContent(element)}
     </g>
   );
@@ -2875,6 +2946,7 @@ function drawCanvasElement(context: CanvasRenderingContext2D, element: BoardElem
   context.save();
   context.lineJoin = 'round';
   context.lineCap = 'round';
+  context.globalAlpha *= clampOpacity(element.opacity);
   applyCanvasElementTransform(context, element);
 
   switch (element.type) {
@@ -3098,6 +3170,10 @@ function parseZoomInput(value: string) {
 
 function clampZoom(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function clampOpacity(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(1, Math.max(0.1, value)) : 1;
 }
 
 function fitViewportToElements(elements: BoardElement[], viewportWidth: number, viewportHeight: number): ViewportState {

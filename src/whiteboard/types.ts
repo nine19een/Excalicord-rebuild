@@ -24,7 +24,8 @@ export type ViewportState = {
 export type DragHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'start' | 'end';
 
 export type ColorStyle = {
-  color: string;
+  color?: string;
+  opacity?: number;
 };
 
 export type LayerAction = 'bring-forward' | 'send-backward' | 'bring-to-front' | 'send-to-back';
@@ -33,12 +34,14 @@ export type ElementTransform = {
   rotation?: number;
   flipX?: boolean;
   flipY?: boolean;
+  opacity?: number;
 };
 
 export type TextStyle = {
   fontFamily: string;
   fontSize: number;
   color: string;
+  opacity?: number;
 };
 
 export const MIN_VIEWPORT_ZOOM = 0.25;
@@ -62,6 +65,7 @@ export const DEFAULT_TEXT_STYLE: TextStyle = {
   fontFamily: 'system-ui',
   fontSize: 28,
   color: '#111827',
+  opacity: 1,
 };
 
 export const TEXT_FONT_OPTIONS = [

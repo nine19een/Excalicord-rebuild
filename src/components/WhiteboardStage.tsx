@@ -522,6 +522,10 @@ function WhiteboardStage({
       return 'move';
     }
 
+    if (selectedIds.length > 1 && selectionOverlayBox && isPointInsideSelectionOverlayBox(point, selectionOverlayBox)) {
+      return 'move';
+    }
+
     const hitElement = getTopElementAtPoint(point);
     return hitElement ? 'move' : null;
   };
@@ -706,7 +710,8 @@ function WhiteboardStage({
         id: strokeId,
         type: 'draw',
         points: [point],
-        color: shapeDefaults.color,
+        color: shapeDefaults.color ?? '#1f2937',
+        opacity: clampOpacity(shapeDefaults.opacity),
       };
       onElementsChange([...scopeElements, nextStroke]);
       onSelectedIdsChange([]);
@@ -730,7 +735,8 @@ function WhiteboardStage({
               y: point.y,
               width: 0,
               height: 0,
-              color: shapeDefaults.color,
+              color: shapeDefaults.color ?? '#1f2937',
+              opacity: clampOpacity(shapeDefaults.opacity),
             }
           : {
               id: nextId,
@@ -739,7 +745,8 @@ function WhiteboardStage({
               y1: point.y,
               x2: point.x,
               y2: point.y,
-              color: shapeDefaults.color,
+              color: shapeDefaults.color ?? '#1f2937',
+              opacity: clampOpacity(shapeDefaults.opacity),
             };
 
       onElementsChange([...scopeElements, nextElement]);
@@ -1538,6 +1545,10 @@ function clamp01(value: number) {
   return Math.min(1, Math.max(0, value));
 }
 
+function clampOpacity(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(1, Math.max(0.1, value)) : 1;
+}
+
 function distributeElementsByOwner(
   slides: Slide[],
   freeboardElements: BoardElement[],
@@ -1838,7 +1849,7 @@ function getSlideClipId(slideId: string) {
 }
 function renderElement(element: BoardElement) {
   return (
-    <g key={element.id} transform={getElementSvgTransform(element)}>
+    <g key={element.id} transform={getElementSvgTransform(element)} opacity={getElementOpacity(element)}>
       {renderElementContent(element)}
     </g>
   );
@@ -1949,6 +1960,10 @@ function renderElementContent(element: BoardElement) {
 
 function getElementColor(element: BoardElement) {
   return 'color' in element ? element.color : '#1f2937';
+}
+
+function getElementOpacity(element: BoardElement) {
+  return clampOpacity(element.opacity);
 }
 
 function renderPreviewOverlay(element: BoardElement) {
@@ -2149,6 +2164,12 @@ function getSelectionBoxResizeHandle(point: BoardPoint, box: SelectionOverlayBox
   const handles = getSelectionBoxHandlePositions(box);
 
   return handles.find((handle) => isPointInBounds(localPoint, normalizeRect(handle.x - 7, handle.y - 7, 14, 14)))?.key ?? null;
+}
+
+function isPointInsideSelectionOverlayBox(point: BoardPoint, box: SelectionOverlayBox) {
+  const center = { x: box.centerX, y: box.centerY };
+  const localPoint = rotatePointAround(point, center, -box.rotation);
+  return isPointInBounds(localPoint, normalizeRect(box.x, box.y, box.width, box.height));
 }
 
 function getSelectionBoxHandlePositions(box: SelectionOverlayBox) {

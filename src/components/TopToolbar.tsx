@@ -1,25 +1,15 @@
-import { useRef, useState } from 'react';
-import type { CSSProperties, ChangeEvent, ReactNode } from 'react';
-import type { ColorStyle, LayerAction, TextStyle, ToolType } from '../whiteboard/types';
-import { BOARD_COLOR_OPTIONS, TEXT_FONT_OPTIONS, TEXT_SIZE_OPTIONS } from '../whiteboard/types';
+import { useRef } from 'react';
+import type { ChangeEvent, ReactNode } from 'react';
+import type { ToolType } from '../whiteboard/types';
 
 type TopToolbarProps = {
   activeTool: ToolType;
   onToolChange: (tool: ToolType) => void;
   onInsertImage: (file: File) => void | Promise<void>;
-  textStyle: TextStyle | null;
-  colorStyle: ColorStyle | null;
   canUndo: boolean;
   canRedo: boolean;
-  onTextStyleChange: (patch: Partial<TextStyle>) => void;
-  onColorChange: (patch: Partial<ColorStyle>) => void;
   onUndo: () => void;
   onRedo: () => void;
-  canArrangeLayers: boolean;
-  onLayerAction: (action: LayerAction) => void;
-  canTransformSelection: boolean;
-  onRotateSelection: (degrees: number) => void;
-  onFlipSelection: (axis: 'horizontal' | 'vertical') => void;
 };
 
 type ToolbarItem = {
@@ -33,24 +23,6 @@ type ToolbarActionItem = {
   disabled: boolean;
   onClick: () => void;
 };
-
-type LayerActionItem = {
-  key: LayerAction;
-  label: string;
-};
-
-type TransformActionItem = {
-  key: 'rotate-left' | 'rotate-right' | 'flip-horizontal' | 'flip-vertical';
-  label: string;
-  onClick: () => void;
-};
-
-const layerActionItems: LayerActionItem[] = [
-  { key: 'bring-forward', label: '\u4e0a\u79fb\u4e00\u5c42' },
-  { key: 'send-backward', label: '\u4e0b\u79fb\u4e00\u5c42' },
-  { key: 'bring-to-front', label: '\u7f6e\u4e8e\u9876\u5c42' },
-  { key: 'send-to-back', label: '\u7f6e\u4e8e\u5e95\u5c42' },
-];
 
 const toolGroups: ToolbarItem[][] = [
   [
@@ -75,31 +47,15 @@ function TopToolbar({
   activeTool,
   onToolChange,
   onInsertImage,
-  textStyle,
-  colorStyle,
   canUndo,
   canRedo,
-  onTextStyleChange,
-  onColorChange,
   onUndo,
   onRedo,
-  canArrangeLayers,
-  onLayerAction,
-  canTransformSelection,
-  onRotateSelection,
-  onFlipSelection,
 }: TopToolbarProps) {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const [isLayerMenuOpen, setIsLayerMenuOpen] = useState(false);
   const actionItems: ToolbarActionItem[] = [
     { key: 'undo', label: '\u64a4\u9500', disabled: !canUndo, onClick: onUndo },
     { key: 'redo', label: '\u91cd\u505a', disabled: !canRedo, onClick: onRedo },
-  ];
-  const transformActionItems: TransformActionItem[] = [
-    { key: 'rotate-left', label: '\u5de6\u8f6c', onClick: () => onRotateSelection(-90) },
-    { key: 'rotate-right', label: '\u53f3\u8f6c', onClick: () => onRotateSelection(90) },
-    { key: 'flip-horizontal', label: '\u6c34\u5e73\u955c\u50cf', onClick: () => onFlipSelection('horizontal') },
-    { key: 'flip-vertical', label: '\u5782\u76f4\u955c\u50cf', onClick: () => onFlipSelection('vertical') },
   ];
 
   const handleImageClick = () => {
@@ -155,114 +111,6 @@ function TopToolbar({
         ))}
       </div>
 
-      <div className="board-toolbar__group">
-        {transformActionItems.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            className="board-toolbar__button"
-            onClick={item.onClick}
-            disabled={!canTransformSelection}
-            title={item.label}
-          >
-            <ToolbarIcon type={item.key} />
-            <span className="board-toolbar__label">{item.label}</span>
-          </button>
-        ))}
-      </div>
-
-      {canArrangeLayers && (
-        <div className="board-toolbar__group board-toolbar__group--layers">
-          <div className="board-toolbar__layer-menu">
-            <button
-              type="button"
-              className={`board-toolbar__button ${isLayerMenuOpen ? 'board-toolbar__button--active' : ''}`}
-              onClick={() => setIsLayerMenuOpen((current) => !current)}
-              aria-haspopup="menu"
-              aria-expanded={isLayerMenuOpen}
-            >
-              <ToolbarIcon type="arrange" />
-              <span className="board-toolbar__label">{'\u6392\u5217'}</span>
-            </button>
-
-            {isLayerMenuOpen && (
-              <div className="board-toolbar__layer-popover" role="menu">
-                {layerActionItems.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className="board-toolbar__layer-action"
-                    onClick={() => {
-                      onLayerAction(item.key);
-                      setIsLayerMenuOpen(false);
-                    }}
-                    role="menuitem"
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {(colorStyle || textStyle) && (
-        <div className="board-toolbar__properties">
-          {textStyle && (
-            <>
-              <label className="board-toolbar__field">
-                <span className="board-toolbar__field-label">{'\u5b57\u4f53'}</span>
-                <select
-                  className="board-toolbar__select"
-                  value={textStyle.fontFamily}
-                  onChange={(event) => onTextStyleChange({ fontFamily: event.target.value })}
-                >
-                  {TEXT_FONT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="board-toolbar__field">
-                <span className="board-toolbar__field-label">{'\u5b57\u53f7'}</span>
-                <select
-                  className="board-toolbar__select board-toolbar__select--size"
-                  value={textStyle.fontSize}
-                  onChange={(event) => onTextStyleChange({ fontSize: Number(event.target.value) })}
-                >
-                  {TEXT_SIZE_OPTIONS.map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          )}
-
-          {colorStyle && (
-            <div className="board-toolbar__palette" aria-label={'\u989c\u8272\u9009\u62e9'}>
-              {BOARD_COLOR_OPTIONS.map((color) => {
-                const isActive = colorStyle.color === color;
-                return (
-                  <button
-                    key={color}
-                    type="button"
-                    className={`board-toolbar__color-swatch ${isActive ? 'board-toolbar__color-swatch--active' : ''}`}
-                    style={{ '--swatch-color': color } as CSSProperties}
-                    onClick={() => onColorChange({ color })}
-                    aria-label={`\u5207\u6362\u989c\u8272 ${color}`}
-                  />
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
       <input
         ref={imageInputRef}
         type="file"
@@ -274,7 +122,7 @@ function TopToolbar({
   );
 }
 
-function ToolbarIcon({ type }: { type: ToolType | 'undo' | 'redo' | 'arrange' | TransformActionItem['key'] }) {
+function ToolbarIcon({ type }: { type: ToolType | ToolbarActionItem['key'] }) {
   const icon = getToolbarIcon(type);
   return (
     <svg className="board-toolbar__icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -283,7 +131,7 @@ function ToolbarIcon({ type }: { type: ToolType | 'undo' | 'redo' | 'arrange' | 
   );
 }
 
-function getToolbarIcon(type: ToolType | 'undo' | 'redo' | 'arrange' | TransformActionItem['key']): ReactNode {
+function getToolbarIcon(type: ToolType | ToolbarActionItem['key']): ReactNode {
   switch (type) {
     case 'hand':
       return <path d="M8 11V5.8a1.4 1.4 0 0 1 2.8 0V10m0 0V4.6a1.4 1.4 0 0 1 2.8 0V10m0 .2V6a1.4 1.4 0 0 1 2.8 0v6.8m0-.2V9.2a1.4 1.4 0 0 1 2.8 0v4.2c0 4.2-2.7 6.6-6.3 6.6h-1.6c-2.2 0-3.5-.8-4.8-2.5L4.4 14.8a1.6 1.6 0 0 1 2.4-2.1L8 14" />;
@@ -309,16 +157,6 @@ function getToolbarIcon(type: ToolType | 'undo' | 'redo' | 'arrange' | Transform
       return <path d="M9 7H5v4M5 7l5.2 5.2A5 5 0 1 0 13.8 4" />;
     case 'redo':
       return <path d="M15 7h4v4M19 7l-5.2 5.2A5 5 0 1 1 10.2 4" />;
-    case 'arrange':
-      return <path d="M7 8h10M7 12h10M7 16h10M10 5l-3 3 3 3M14 19l3-3-3-3" />;
-    case 'rotate-left':
-      return <path d="M8 7H4V3M4.5 7.5A7 7 0 1 1 5.8 16M9 12h6" />;
-    case 'rotate-right':
-      return <path d="M16 7h4V3M19.5 7.5A7 7 0 1 0 18.2 16M9 12h6" />;
-    case 'flip-horizontal':
-      return <path d="M12 4v16M5 7l5 5-5 5V7zM19 7l-5 5 5 5V7z" />;
-    case 'flip-vertical':
-      return <path d="M4 12h16M7 5l5 5 5-5H7zM7 19l5-5 5 5H7z" />;
     default:
       return null;
   }

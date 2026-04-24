@@ -511,34 +511,206 @@ button {
 }
 
 .toggle-switch {
-  width: 56px;
-  height: 32px;
-  padding: 4px;
+  width: 52px;
+  height: 30px;
+  padding: 3px;
   border-radius: 999px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: #e5e7eb;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  background: #cbd5e1;
   position: relative;
-  transition: background-color 0.2s, border-color 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex: 0 0 auto;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.12);
+  transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.toggle-switch:hover {
+  border-color: rgba(15, 23, 42, 0.24);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.14), 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.toggle-switch:focus-visible {
+  outline: 3px solid rgba(124, 58, 237, 0.22);
+  outline-offset: 3px;
 }
 
 .toggle-switch--on {
   background: #111827;
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(17, 24, 39, 0.72);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.08), 0 6px 16px rgba(17, 24, 39, 0.18);
+}
+
+.toggle-switch--on:hover {
+  border-color: rgba(17, 24, 39, 0.9);
 }
 
 .toggle-thumb {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 999px;
   background: #ffffff;
-  box-shadow: 0 12px 18px rgba(15, 23, 42, 0.15);
-  transition: transform 0.2s;
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.24);
+  transform: translateX(0);
+  transition: transform 0.18s ease;
 }
 
 .toggle-switch--on .toggle-thumb {
-  transform: translateX(24px);
+  transform: translateX(22px);
 }
 
+.toggle-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+
+/* Compact recording settings controls. Preview column sizing intentionally stays unchanged. */
+.settings-column {
+  padding: 20px 24px 24px;
+}
+
+.settings-header {
+  padding-bottom: 12px;
+}
+
+.settings-title {
+  font-size: 1.72rem;
+  line-height: 1.08;
+}
+
+.close-button {
+  width: 36px;
+  height: 36px;
+  font-size: 1.15rem;
+}
+
+.settings-scroll {
+  padding-right: 6px;
+}
+
+.settings-group--section {
+  padding: 22px 0 24px;
+}
+
+.settings-group--section:first-child {
+  padding-top: 6px;
+}
+
+.section-title {
+  margin-bottom: 12px;
+  font-size: 0.94rem;
+}
+
+.settings-subsection + .settings-subsection {
+  margin-top: 18px;
+}
+
+.settings-subsection-title {
+  margin-bottom: 10px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+}
+
+.section-block + .section-block {
+  margin-top: 22px;
+}
+
+.option-grid {
+  gap: 8px;
+}
+
+.option-button {
+  min-height: 34px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.category-tabs {
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tab-button {
+  padding: 7px 12px;
+  font-size: 0.82rem;
+}
+
+.background-grid {
+  gap: 9px;
+}
+
+.background-swatch {
+  border-radius: 14px;
+}
+
+.background-swatch--random {
+  padding: 12px;
+}
+
+.background-swatch-random-icon {
+  width: 28px;
+  height: 28px;
+  font-size: 0.98rem;
+}
+
+.background-swatch-random-label {
+  font-size: 0.8rem;
+}
+
+.camera-label {
+  font-size: 0.9rem;
+}
+
+.camera-note {
+  margin-top: 4px;
+  font-size: 0.82rem;
+}
+
+.camera-settings-grid {
+  gap: 13px;
+  margin-top: 16px;
+}
+
+.camera-setting-field {
+  gap: 7px;
+  font-size: 0.8rem;
+}
+
+.camera-setting-field select {
+  height: 34px;
+  border-radius: 10px;
+  font-size: 0.84rem;
+}
+
+.camera-setting-field--range {
+  margin-bottom: 6px;
+}
+
+.camera-setting-field--range + .camera-setting-field,
+.camera-setting-field--range + .camera-shape-options {
+  margin-top: 4px;
+}
+
+.setting-field-title {
+  font-size: 0.8rem;
+}
+
+.camera-shape-options {
+  gap: 7px;
+}
+
+.camera-shape-option {
+  height: 34px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+}
 @media (max-width: 1024px) {
   .modal-layout {
     grid-template-columns: 1fr;
@@ -563,3 +735,525 @@ button {
 }
 
 
+
+
+
+.canvas-background-color-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.canvas-background-color {
+  min-height: 38px;
+  border: 2px solid rgba(15, 23, 42, 0.1);
+  border-radius: 12px;
+  color: #0f172a;
+  font-size: 0.72rem;
+  font-weight: 850;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.canvas-background-color:hover {
+  transform: translateY(-1px);
+  border-color: rgba(15, 23, 42, 0.22);
+}
+
+.canvas-background-color--active {
+  border-color: #111827;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.72), 0 0 0 2px rgba(17, 24, 39, 0.08);
+}
+
+.settings-field-label {
+  margin: 0 0 8px;
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.settings-field-label:not(:first-child) {
+  margin-top: 14px;
+}
+
+.canvas-pattern-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.canvas-pattern-option {
+  min-height: 58px;
+  padding: 8px 6px;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.94);
+  color: #334155;
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 850;
+  transition: transform 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.canvas-pattern-option:hover {
+  transform: translateY(-1px);
+  border-color: rgba(15, 23, 42, 0.18);
+}
+
+.canvas-pattern-option--active {
+  background: #111827;
+  border-color: rgba(17, 24, 39, 0.2);
+  color: #ffffff;
+}
+
+.canvas-pattern-preview {
+  width: 42px;
+  height: 22px;
+  border-radius: 7px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.canvas-pattern-option--active .canvas-pattern-preview {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.canvas-pattern-option--none .canvas-pattern-preview {
+  background: #ffffff;
+}
+
+.canvas-pattern-option--ruled .canvas-pattern-preview {
+  background:
+    repeating-linear-gradient(180deg, transparent 0 6px, rgba(51, 65, 85, 0.42) 6px 7px, transparent 7px 12px),
+    #ffffff;
+}
+
+.canvas-pattern-option--grid .canvas-pattern-preview {
+  background:
+    repeating-linear-gradient(180deg, transparent 0 6px, rgba(51, 65, 85, 0.34) 6px 7px, transparent 7px 12px),
+    repeating-linear-gradient(90deg, transparent 0 6px, rgba(51, 65, 85, 0.34) 6px 7px, transparent 7px 12px),
+    #ffffff;
+}
+
+.canvas-pattern-option--dots .canvas-pattern-preview {
+  background:
+    radial-gradient(circle, rgba(51, 65, 85, 0.5) 1.4px, transparent 1.7px) 0 0 / 9px 9px,
+    #ffffff;
+}
+
+.canvas-background-spacing {
+  margin-top: 8px;
+}
+
+.canvas-background-spacing--disabled {
+  opacity: 0.52;
+}
+
+.canvas-background-spacing--disabled input {
+  cursor: not-allowed;
+}
+
+.canvas-background-color-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.canvas-background-color--custom {
+  background:
+    linear-gradient(135deg, #f87171, #facc15 34%, #34d399 67%, #60a5fa) !important;
+  color: #ffffff;
+  text-shadow: 0 1px 4px rgba(15, 23, 42, 0.45);
+}
+
+.canvas-background-color--custom span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.42);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.canvas-background-color--custom input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.canvas-pattern-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.canvas-pattern-option {
+  min-height: 74px;
+  padding: 0;
+  overflow: hidden;
+  align-content: end;
+  background-color: var(--canvas-pattern-card-bg, #ffffff);
+  background-image: none;
+  background-size: 24px 24px;
+  color: #334155;
+  position: relative;
+}
+
+.canvas-pattern-option::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 24px;
+  background: transparent;
+  opacity: 0.72;
+}
+
+.canvas-pattern-label {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  padding: 6px 4px;
+  background: rgba(255, 255, 255, 0.72);
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  color: #334155;
+}
+
+.canvas-pattern-option--active .canvas-pattern-label {
+  background: rgba(17, 24, 39, 0.9);
+  color: #ffffff;
+}
+
+.canvas-pattern-option--active {
+  border-color: #111827;
+  box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.08);
+}
+
+.canvas-pattern-option--none::before {
+  background: transparent;
+}
+
+.canvas-pattern-option--ruled::before {
+  background-image: repeating-linear-gradient(180deg, transparent 0 11px, rgba(51, 65, 85, 0.28) 11px 12px, transparent 12px 24px);
+}
+
+.canvas-pattern-option--grid::before {
+  background-image:
+    repeating-linear-gradient(180deg, transparent 0 11px, rgba(51, 65, 85, 0.24) 11px 12px, transparent 12px 24px),
+    repeating-linear-gradient(90deg, transparent 0 11px, rgba(51, 65, 85, 0.24) 11px 12px, transparent 12px 24px);
+}
+
+.canvas-pattern-option--dots::before {
+  background-image: radial-gradient(circle, rgba(51, 65, 85, 0.34) 1.5px, transparent 1.8px);
+  background-size: 12px 12px;
+}
+
+/* Recording settings canvas background polish */
+.canvas-background-color {
+  min-height: 34px;
+  aspect-ratio: 1.45 / 1;
+  padding: 0;
+  overflow: hidden;
+}
+
+.canvas-background-color--custom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.canvas-pattern-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.canvas-pattern-option {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 6px;
+  background: transparent !important;
+  color: #475569;
+  box-shadow: none;
+}
+
+.canvas-pattern-option::before {
+  content: none;
+}
+
+.canvas-pattern-preview-card {
+  display: block;
+  width: 100%;
+  height: 52px;
+  border-radius: 13px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.canvas-pattern-label {
+  width: auto;
+  padding: 0;
+  background: transparent !important;
+  border: 0;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 850;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.canvas-pattern-option:hover .canvas-pattern-preview-card {
+  border-color: rgba(15, 23, 42, 0.22);
+  transform: translateY(-1px);
+}
+
+.canvas-pattern-option--active {
+  border-color: transparent;
+  box-shadow: none;
+  color: #111827;
+}
+
+.canvas-pattern-option--active .canvas-pattern-preview-card {
+  border-color: #111827;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34), 0 0 0 2px rgba(17, 24, 39, 0.08);
+}
+
+.canvas-pattern-option--active .canvas-pattern-label {
+  color: #111827;
+}
+
+/* Final recording-settings background cards: four vertical previews with labels outside. */
+.canvas-pattern-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  align-items: start;
+}
+
+.canvas-pattern-option {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 6px;
+  background: transparent !important;
+  color: #475569;
+  box-shadow: none;
+}
+
+.canvas-pattern-option::before {
+  content: none !important;
+}
+
+.canvas-pattern-preview-card {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  min-height: 72px;
+  border-radius: 13px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.canvas-pattern-label {
+  width: auto;
+  padding: 0;
+  background: transparent !important;
+  border: 0;
+  color: #64748b;
+  font-size: 0.74rem;
+  font-weight: 850;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.canvas-pattern-option:hover .canvas-pattern-preview-card {
+  border-color: rgba(15, 23, 42, 0.22);
+  transform: translateY(-1px);
+}
+
+.canvas-pattern-option--active {
+  border-color: transparent;
+  box-shadow: none;
+  color: #111827;
+}
+
+.canvas-pattern-option--active .canvas-pattern-preview-card {
+  border-color: #111827;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34), 0 0 0 2px rgba(17, 24, 39, 0.08);
+}
+
+.canvas-pattern-option--active .canvas-pattern-label {
+  color: #111827;
+}
+
+/* Compact canvas background color swatches and roomier spacing controls. */
+.canvas-background-color-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.canvas-background-color {
+  min-height: 24px;
+  height: 24px;
+  aspect-ratio: auto;
+  padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.canvas-background-color--custom span {
+  width: 16px;
+  height: 16px;
+  font-size: 0.88rem;
+}
+
+.canvas-pattern-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  align-items: start;
+}
+
+.canvas-pattern-preview-card {
+  aspect-ratio: 2 / 3;
+  min-height: 82px;
+}
+
+/* Recording settings swatches: compact but not stretched. */
+.canvas-background-color-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.canvas-background-color {
+  width: 46px;
+  height: 32px;
+  min-height: 32px;
+  flex: 0 0 auto;
+  aspect-ratio: auto;
+  padding: 0;
+  border-radius: 10px;
+}
+
+.canvas-background-color--custom span {
+  width: 18px;
+  height: 18px;
+  font-size: 0.96rem;
+}
+
+/* Restore background style cards to taller vertical previews. */
+.canvas-pattern-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+  align-items: start;
+}
+
+.canvas-pattern-preview-card {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  min-height: 86px;
+  border-radius: 13px;
+}
+
+.canvas-pattern-label {
+  margin-top: 1px;
+  background: transparent !important;
+  border: 0;
+}
+
+/* Requested recording background picker sizing. */
+.canvas-background-color-grid {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.canvas-background-color {
+  width: 56px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  flex: 0 0 56px;
+  border-radius: 12px;
+  padding: 0;
+}
+
+.canvas-background-color--custom span {
+  width: 22px;
+  height: 22px;
+  font-size: 1.05rem;
+}
+
+/* Requested recording background pattern preview cards. */
+.canvas-pattern-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+  margin-bottom: 12px;
+}
+
+.canvas-pattern-option {
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  overflow: visible !important;
+  display: grid !important;
+  grid-template-rows: auto auto;
+  gap: 7px;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.canvas-pattern-option::before {
+  content: none !important;
+}
+
+.canvas-pattern-preview-card {
+  display: block;
+  width: 100%;
+  height: 104px !important;
+  min-height: 104px !important;
+  aspect-ratio: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
+}
+
+.canvas-pattern-label {
+  width: auto !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 850;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.canvas-pattern-option--active .canvas-pattern-preview-card {
+  border-color: #6d5dfc !important;
+  box-shadow: 0 0 0 2px rgba(109, 93, 252, 0.16) !important;
+}
+
+.canvas-pattern-option--active .canvas-pattern-label {
+  color: #4338ca;
+}

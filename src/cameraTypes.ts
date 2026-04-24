@@ -1,4 +1,4 @@
-export type CameraShape = 'circle' | 'square';
+﻿export type CameraShape = 'circle' | 'square';
 
 export type CameraSettings = {
   enabled: boolean;
@@ -18,10 +18,14 @@ export type MediaDeviceChoice = {
 };
 
 export type CursorEffect = 'none' | 'cursor' | 'highlight';
+export type CanvasBackgroundPattern = 'none' | 'ruled' | 'grid' | 'dots';
 
 export type RecordingVisualSettings = {
   canvasRadius: number;
   canvasPadding: number;
+  canvasBackgroundColor: string;
+  canvasBackgroundPattern: CanvasBackgroundPattern;
+  canvasBackgroundSpacing: number;
   cursorEffect: CursorEffect;
 };
 
@@ -40,5 +44,10 @@ export const DEFAULT_CAMERA_SETTINGS: CameraSettings = {
 export const DEFAULT_RECORDING_VISUAL_SETTINGS: RecordingVisualSettings = {
   canvasRadius: 0,
   canvasPadding: 48,
+  canvasBackgroundColor: '#fbfaf6',
+  canvasBackgroundPattern: 'none',
+  canvasBackgroundSpacing: 64,
   cursorEffect: 'cursor',
 };
+
+

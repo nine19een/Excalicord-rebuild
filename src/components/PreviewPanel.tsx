@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CameraSettings, RecordingVisualSettings } from '../cameraTypes';
 import type { BackgroundSwatch } from '../mockOptions';
 import { getRecordingCompositionLayout } from '../recordingLayout';
+import { getCanvasBackgroundCss } from '../canvasBackground';
 
 type PreviewPanelProps = {
   aspectRatio: number;
@@ -93,15 +94,6 @@ function PreviewPanel({ aspectRatio, background, visualSettings, cameraSettings,
     };
   }, [aspectRatio, panelSize.height, panelSize.width, titleHeight]);
 
-  const contentLines = useMemo(() => {
-    const baseCount = Math.round(frameSize.height / 56);
-    const ratioAdjustment = aspectRatio < 1 ? 2 : aspectRatio > 1.6 ? -1 : 0;
-    const count = Math.max(3, Math.min(10, baseCount + ratioAdjustment));
-    const widths = [74, 52, 88, 64, 80, 46, 70, 58, 84, 50];
-
-    return Array.from({ length: count }, (_, index) => widths[index % widths.length]);
-  }, [aspectRatio, frameSize.height]);
-
   const sourceFrame = useMemo(
     () => ({
       x: 0,
@@ -132,6 +124,7 @@ function PreviewPanel({ aspectRatio, background, visualSettings, cameraSettings,
       Math.max(8, Math.min(canvasRect.width, canvasRect.height) * 0.08)
     )
   );
+  const canvasBackgroundStyle = getCanvasBackgroundCss(visualSettings);
 
   return (
     <div ref={panelRef} className="preview-panel">
@@ -148,6 +141,7 @@ function PreviewPanel({ aspectRatio, background, visualSettings, cameraSettings,
               <div
                 className="whiteboard-canvas"
                 style={{
+                  ...canvasBackgroundStyle,
                   left: `${Math.round(canvasRect.x)}px`,
                   top: `${Math.round(canvasRect.y)}px`,
                   width: `${Math.round(canvasRect.width)}px`,
@@ -155,16 +149,6 @@ function PreviewPanel({ aspectRatio, background, visualSettings, cameraSettings,
                   borderRadius: `${Math.round(compositionLayout.canvasRadius)}px`,
                 }}
               >
-                <div className="preview-content-lines" aria-hidden="true">
-                  {contentLines.map((width, index) => (
-                    <span
-                      key={`${width}-${index}`}
-                      className="preview-content-line"
-                      style={{ width: `${width}%` }}
-                    />
-                  ))}
-                </div>
-
                 {cameraSettings.enabled && cameraPreviewSize > 0 && (
                   <div
                     className={`camera-preview camera-preview--${cameraSettings.shape}`}
@@ -199,3 +183,4 @@ function PreviewPanel({ aspectRatio, background, visualSettings, cameraSettings,
 }
 
 export default PreviewPanel;
+

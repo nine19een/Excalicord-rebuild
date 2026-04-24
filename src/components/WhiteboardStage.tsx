@@ -1,7 +1,8 @@
 ﻿import type React from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CameraSettings } from '../cameraTypes';
+import type { CameraSettings, RecordingVisualSettings } from '../cameraTypes';
 import { getCameraPositionFromRect } from '../recordingLayout';
+import { clampCanvasBackgroundSpacing, getCanvasBackgroundCssWithSpacing, getCanvasDotPatternColor, getCanvasPatternColor, isDarkCanvasBackground, normalizeCanvasBackgroundColor } from '../canvasBackground';
 import type {
   BoardElement,
   BoardPoint,
@@ -69,8 +70,10 @@ type WhiteboardStageProps = {
   activeSlideId: string | null;
   recordingFrame: SlideFrame | null;
   recordingOverlayStatus: 'idle' | 'preparing' | 'recording' | 'paused';
+  recordingActiveSlideId: string | null;
   recordingSlideTransition: RecordingSlideTransition | null;
   recordingSlideTransitionNow: number;
+  recordingVisualSettings: RecordingVisualSettings;
   imageCrop: ImageCropState | null;
   onImageCropChange: (state: ImageCropState | null) => void;
   onConfirmImageCrop: () => void;
@@ -147,8 +150,10 @@ function WhiteboardStage({
   activeSlideId,
   recordingFrame,
   recordingOverlayStatus,
+  recordingActiveSlideId,
   recordingSlideTransition,
   recordingSlideTransitionNow,
+  recordingVisualSettings,
   imageCrop,
   onImageCropChange,
   onConfirmImageCrop,
@@ -446,7 +451,7 @@ function WhiteboardStage({
       ? getRecordingPresentationStrip(
           recordingOverlayFrame,
           slides,
-          activeSlideId,
+          recordingActiveSlideId ?? activeSlideId,
           recordingSlideTransition,
           recordingSlideTransitionNow || performance.now()
         )
@@ -1217,8 +1222,26 @@ function WhiteboardStage({
       : activeTool === 'select' && hoverCursor
         ? { cursor: hoverCursor }
         : undefined;
+  const canvasBackgroundColor = normalizeCanvasBackgroundColor(recordingVisualSettings.canvasBackgroundColor);
+  const canvasBackgroundPattern = recordingVisualSettings.canvasBackgroundPattern ?? 'none';
+  const canvasBackgroundSpacing = clampCanvasBackgroundSpacing(recordingVisualSettings.canvasBackgroundSpacing);
+  const effectiveCanvasBackgroundSpacing = Math.max(2, canvasBackgroundSpacing * viewport.zoom);
+  const canvasPatternColor = getCanvasPatternColor(canvasBackgroundColor);
+  const canvasDotPatternColor = getCanvasDotPatternColor(canvasBackgroundColor);
+  const isDarkCanvasBackgroundColor = isDarkCanvasBackground(canvasBackgroundColor);
+  const slideBackgroundPatternIdPrefix = `board-canvas-background-${canvasBackgroundPattern}-${canvasBackgroundColor.replace(/[^a-z0-9]/gi, '')}-${Math.round(canvasBackgroundSpacing)}`;
+  const getSlideBackgroundPatternId = (key: string) => `${slideBackgroundPatternIdPrefix}-${key.replace(/[^a-z0-9]/gi, '') || 'slide'}`;
+  const getSlideFrameFill = (patternId: string) => canvasBackgroundPattern === 'none' ? canvasBackgroundColor : `url(#${patternId})`;
+  const getSlideFrameStyle = (patternId: string, active = false) => ({
+    fill: getSlideFrameFill(patternId),
+    stroke: active ? 'rgba(109, 93, 252, 0.98)' : isDarkCanvasBackgroundColor ? 'rgba(255, 255, 255, 0.38)' : 'rgba(15, 23, 42, 0.26)',
+    filter: 'none',
+  }) as React.CSSProperties;
+  const slideTitleStyle = { fill: isDarkCanvasBackgroundColor ? 'rgba(241, 245, 249, 0.76)' : 'rgba(51, 65, 85, 0.66)' } as React.CSSProperties;
+  const activeSlideTitleStyle = { fill: isDarkCanvasBackgroundColor ? 'rgba(255, 255, 255, 0.94)' : 'rgba(31, 41, 55, 0.9)', fontWeight: 800 } as React.CSSProperties;
   const stageStyle = {
     ...(stageCursorStyle ?? {}),
+    ...getCanvasBackgroundCssWithSpacing(recordingVisualSettings, effectiveCanvasBackgroundSpacing),
     '--board-grid-size': `${24 * viewport.zoom}px`,
   } as React.CSSProperties;
 
@@ -1244,6 +1267,12 @@ function WhiteboardStage({
                 <rect {...slide.frame} />
               </clipPath>
             ))}
+            {canvasBackgroundPattern !== 'none' ? (
+              <>
+                {slides.map((slide) => renderCanvasBackgroundPattern(getSlideBackgroundPatternId(slide.id), canvasBackgroundPattern, canvasBackgroundColor, canvasPatternColor, canvasDotPatternColor, canvasBackgroundSpacing, viewport.zoom, slide.frame.x, slide.frame.y))}
+                {recordingPresentationStrip?.slides.map(({ key, displayFrame }) => renderCanvasBackgroundPattern(getSlideBackgroundPatternId(`recording-${key}`), canvasBackgroundPattern, canvasBackgroundColor, canvasPatternColor, canvasDotPatternColor, canvasBackgroundSpacing, viewport.zoom, displayFrame.x, displayFrame.y))}
+              </>
+            ) : null}
             <mask id="freeboard-slide-mask" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000">
               <rect x="-100000" y="-100000" width="200000" height="200000" fill="white" />
               {slides.map((slide) => (
@@ -1256,22 +1285,28 @@ function WhiteboardStage({
                 <rect {...recordingOverlayFrame} fill="black" />
               </mask>
             ) : null}
-            {recordingPresentationStrip?.slides.map(({ clipId }) => (
+            {recordingPresentationStrip?.slides.map(({ clipId, displayFrame }) => (
               <clipPath key={clipId} id={clipId}>
-                <rect {...recordingOverlayFrame} />
+                <rect {...displayFrame} />
               </clipPath>
             ))}
           </defs>
 
           {recordingPresentationStrip
-            ? recordingOverlayFrame
-              ? <rect className="board-slide-frame board-slide-frame--active" {...recordingOverlayFrame} />
-              : null
+            ? recordingPresentationStrip.slides.map(({ key, displayFrame }) => (
+                <rect
+                  key={`${key}-frame`}
+                  className="board-slide-frame"
+                  {...displayFrame}
+                  style={getSlideFrameStyle(getSlideBackgroundPatternId(`recording-${key}`))}
+                />
+              ))
             : slides.map((slide) => (
                 <g key={`${slide.id}-frame-shell`}>
                   {!recordingOverlayFrame ? (
                     <text
                       className="board-slide-title"
+                      style={slide.id === activeSlideId ? activeSlideTitleStyle : slideTitleStyle}
                       x={slide.frame.x + slide.frame.width / 2}
                       y={slide.frame.y - 18}
                       textAnchor="middle"
@@ -1282,6 +1317,7 @@ function WhiteboardStage({
                   <rect
                     className={`board-slide-frame${slide.id === activeSlideId ? ' board-slide-frame--active' : ''}`}
                     {...slide.frame}
+                    style={getSlideFrameStyle(getSlideBackgroundPatternId(slide.id), slide.id === activeSlideId)}
                   />
                 </g>
               ))}
@@ -1340,6 +1376,7 @@ function WhiteboardStage({
             <text
               key={`${key}-title`}
               className="board-slide-title"
+              style={slideTitleStyle}
               x={displayFrame.x + displayFrame.width / 2}
               y={displayFrame.y + displayFrame.height + 12}
               textAnchor="middle"
@@ -2276,6 +2313,49 @@ function getLinearEndpointCursor(element: LinearElement) {
 
   return 'nesw-resize';
 }
+function renderCanvasBackgroundPattern(
+  id: string,
+  pattern: RecordingVisualSettings['canvasBackgroundPattern'],
+  backgroundColor: string,
+  patternColor: string,
+  dotPatternColor: string,
+  spacing: number,
+  zoom: number,
+  originX: number,
+  originY: number
+) {
+  const safeZoom = Math.max(zoom, 0.01);
+  const oneScreenPixel = 1 / safeZoom;
+  const dotRadius = 1.8 / safeZoom;
+  if (pattern === 'ruled') {
+    return (
+      <pattern key={id} id={id} patternUnits="userSpaceOnUse" x={originX} y={originY} width={spacing} height={spacing}>
+        <rect width={spacing} height={spacing} fill={backgroundColor} />
+        <path d={`M 0 ${spacing - 0.5} H ${spacing}`} stroke={patternColor} strokeWidth={oneScreenPixel} />
+      </pattern>
+    );
+  }
+
+  if (pattern === 'grid') {
+    return (
+      <pattern key={id} id={id} patternUnits="userSpaceOnUse" x={originX} y={originY} width={spacing} height={spacing}>
+        <rect width={spacing} height={spacing} fill={backgroundColor} />
+        <path d={`M 0 ${spacing - 0.5} H ${spacing} M ${spacing - 0.5} 0 V ${spacing}`} stroke={patternColor} strokeWidth={oneScreenPixel} />
+      </pattern>
+    );
+  }
+
+  if (pattern === 'dots') {
+    return (
+      <pattern key={id} id={id} patternUnits="userSpaceOnUse" x={originX} y={originY} width={spacing} height={spacing}>
+        <rect width={spacing} height={spacing} fill={backgroundColor} />
+        <circle cx={spacing / 2} cy={spacing / 2} r={dotRadius} fill={dotPatternColor} />
+      </pattern>
+    );
+  }
+
+  return null;
+}
 function renderImageCropOverlay(
   rect: { x: number; y: number; width: number; height: number },
   imageBounds: { x: number; y: number; width: number; height: number },
@@ -2530,6 +2610,31 @@ function renderRotationIcon(centerX: number, centerY: number) {
 }
 
 export default WhiteboardStage;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -6,6 +6,7 @@ import TeleprompterPanel, { DEFAULT_TELEPROMPTER_STATE, type TeleprompterPanelSt
 import TopToolbar from './TopToolbar';
 import WhiteboardStage from './WhiteboardStage';
 import type { CameraSettings, RecordingVisualSettings } from '../cameraTypes';
+import { drawCanvasBackgroundPattern, getCanvasBackgroundCss, isDarkCanvasBackground, normalizeCanvasBackgroundColor } from '../canvasBackground';
 import type { BackgroundSwatch } from '../mockOptions';
 import { getRecordingCompositionLayout } from '../recordingLayout';
 import type {
@@ -64,6 +65,8 @@ type WhiteboardPageProps = {
 };
 
 type ElementScopeType = 'slide' | 'freeboard';
+
+const CREATION_TOOLS = new Set<ToolType>(['draw', 'rectangle', 'ellipse', 'arrow', 'line', 'text', 'image']);
 
 type ScopeHistoryEntry = {
   kind: 'scope';
@@ -209,6 +212,14 @@ function WhiteboardPage({
   const normalViewportBeforeRecordingRef = useRef<ViewportState | null>(null);
 
   const elements = history.present;
+  const handleToolChange = useCallback((nextTool: ToolType) => {
+    if (CREATION_TOOLS.has(nextTool)) {
+      setSelectedIds([]);
+      setTextEditor(null);
+    }
+
+    setActiveTool(nextTool);
+  }, []);
   const updateTeleprompterState = useCallback((patch: Partial<TeleprompterPanelState>) => {
     setTeleprompterState((current) => ({ ...current, ...patch }));
   }, []);
@@ -2154,7 +2165,7 @@ function WhiteboardPage({
     <div ref={pageRef} className="board-page">
       <TopToolbar
         activeTool={activeTool}
-        onToolChange={setActiveTool}
+        onToolChange={handleToolChange}
         onInsertImage={handleInsertImage}
         canUndo={history.past.length > 0}
         canRedo={history.future.length > 0}
@@ -2225,8 +2236,10 @@ function WhiteboardPage({
           activeSlideId={activeSlideId}
           recordingFrame={recordingFrame}
           recordingOverlayStatus={recordingStatus}
+          recordingActiveSlideId={recordingStatus !== 'idle' && recordingTarget?.mode === 'slide' ? recordingTarget.slideId : null}
           recordingSlideTransition={slideTransition}
           recordingSlideTransitionNow={slideTransitionTick}
+          recordingVisualSettings={recordingVisualSettings}
           imageCrop={imageCrop}
           onImageCropChange={setImageCrop}
           onConfirmImageCrop={handleConfirmImageCrop}
@@ -2244,7 +2257,7 @@ function WhiteboardPage({
           textEditor={textEditor}
           viewport={viewport}
           onActiveSlideChange={handleActiveScopeChange}
-          onActiveToolChange={setActiveTool}
+          onActiveToolChange={handleToolChange}
           onCommitElementsChange={onCommitElementsChange}
           onCommitElementOwnerMigration={onCommitElementOwnerMigration}
           getScopeElements={getScopeElements}
@@ -2265,6 +2278,7 @@ function WhiteboardPage({
         onRenameSlide={renameSlide}
         onReorderSlide={reorderSlides}
         onSelectSlide={handleActiveScopeChange}
+        recordingVisualSettings={recordingVisualSettings}
       />
 
       {recordingStatus !== 'idle' && recordingTarget?.mode === 'slide' && recordingFrame ? (
@@ -2511,6 +2525,7 @@ function SlideNavigator({
   onRenameSlide,
   onReorderSlide,
   onSelectSlide,
+  recordingVisualSettings,
 }: {
   slides: Slide[];
   activeSlideId: string | null;
@@ -2521,11 +2536,13 @@ function SlideNavigator({
   onRenameSlide: (slideId: string, nextName: string) => void;
   onReorderSlide: (sourceSlideId: string, targetSlideId: string) => void;
   onSelectSlide: (slideId: string) => void;
+  recordingVisualSettings: RecordingVisualSettings;
 }) {
   const [draggingSlideId, setDraggingSlideId] = useState<string | null>(null);
   const [dragOverSlideId, setDragOverSlideId] = useState<string | null>(null);
   const [editingSlideId, setEditingSlideId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const [openMenuSlideId, setOpenMenuSlideId] = useState<string | null>(null);
   const lockedTitle = isStructureLocked ? '\u5f55\u5236\u4e2d\u4e0d\u80fd\u4fee\u6539\u5e7b\u706f\u7247\u7ed3\u6784' : undefined;
 
   useEffect(() => {
@@ -2537,6 +2554,7 @@ function SlideNavigator({
     setDragOverSlideId(null);
     setEditingSlideId(null);
     setRenameDraft('');
+    setOpenMenuSlideId(null);
   }, [isStructureLocked]);
 
   const beginRename = (slide: Slide) => {
@@ -2544,6 +2562,7 @@ function SlideNavigator({
       return;
     }
 
+    setOpenMenuSlideId(null);
     setEditingSlideId(slide.id);
     setRenameDraft(slide.name || '');
   };
@@ -2551,6 +2570,7 @@ function SlideNavigator({
   const cancelRename = () => {
     setEditingSlideId(null);
     setRenameDraft('');
+    setOpenMenuSlideId(null);
   };
 
   const commitRename = () => {
@@ -2583,6 +2603,7 @@ function SlideNavigator({
         ) : slides.map((slide, index) => {
           const isActive = slide.id === activeSlideId;
           const isEditing = editingSlideId === slide.id;
+          const isMenuOpen = openMenuSlideId === slide.id;
           return (
             <div
               key={slide.id}
@@ -2633,9 +2654,9 @@ function SlideNavigator({
                 setDraggingSlideId(null);
                 setDragOverSlideId(null);
               }}
-            >
-              <button type="button" className="slide-navigator__thumbnail-button" onClick={() => onSelectSlide(slide.id)}>
-                <SlideThumbnail slide={slide} />
+              onClick={() => onSelectSlide(slide.id)}
+            >              <button type="button" className="slide-navigator__thumbnail-button" onClick={(event) => { event.stopPropagation(); onSelectSlide(slide.id); }}>
+                <SlideThumbnail slide={slide} recordingVisualSettings={recordingVisualSettings} />
               </button>
 
               <div className="slide-navigator__meta">
@@ -2682,51 +2703,60 @@ function SlideNavigator({
                     {getSlideDisplayName(slide, index)}
                   </button>
                 )}
-              </div>
-
-              <div className="slide-navigator__actions">
-                <button
-                  type="button"
-                  className="slide-navigator__action"
-                  aria-label="Rename slide"
-                  title={lockedTitle ?? 'Rename slide'}
-                  disabled={isStructureLocked}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    beginRename(slide);
-                  }}
-                >
-                  {'\u270e'}
-                </button>
-                <button
-                  type="button"
-                  className="slide-navigator__action"
-                  aria-label="Duplicate slide"
-                  title={lockedTitle ?? 'Duplicate slide'}
-                  disabled={isStructureLocked}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDuplicateSlide(slide.id);
-                  }}
-                >
-                  {'\u29c9'}
-                </button>
-                <button
-                  type="button"
-                  className="slide-navigator__action slide-navigator__action--danger"
-                  aria-label="Delete slide"
-                  title={lockedTitle ?? 'Delete slide'}
-                  disabled={isStructureLocked}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDeleteSlide(slide.id);
-                  }}
-                >
-                  {'\u00d7'}
-                </button>
+                <div className="slide-navigator__menu-wrap" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="slide-navigator__more"
+                    aria-label="Slide actions"
+                    aria-expanded={isMenuOpen}
+                    title={lockedTitle ?? 'More actions'}
+                    disabled={isStructureLocked}
+                    onClick={() => setOpenMenuSlideId((current) => (current === slide.id ? null : slide.id))}
+                  >
+                    <svg className="slide-navigator__more-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M14.7 5.3a4.2 4.2 0 0 0 4 5.2l-7.9 7.9a2 2 0 0 1-2.8 0l-2.4-2.4a2 2 0 0 1 0-2.8l7.9-7.9a4.2 4.2 0 0 0 1.2 0Z" />
+                      <path d="M7.2 15.7l1.1 1.1" />
+                      <path d="M15.7 4.2l4.1 4.1" />
+                    </svg>
+                  </button>
+                  {isMenuOpen ? (
+                    <div className="slide-navigator__menu" role="menu">
+                      <button
+                        type="button"
+                        className="slide-navigator__menu-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenuSlideId(null);
+                          beginRename(slide);
+                        }}
+                      >
+                        {'重命名'}
+                      </button>
+                      <button
+                        type="button"
+                        className="slide-navigator__menu-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenuSlideId(null);
+                          onDuplicateSlide(slide.id);
+                        }}
+                      >
+                        {'复制'}
+                      </button>
+                      <button
+                        type="button"
+                        className="slide-navigator__menu-item slide-navigator__menu-item--danger"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenuSlideId(null);
+                          onDeleteSlide(slide.id);
+                        }}
+                      >
+                        {'删除'}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
           );
@@ -2746,18 +2776,27 @@ function SlideNavigator({
     </aside>
   );
 }
-function SlideThumbnail({ slide }: { slide: Slide }) {
+function SlideThumbnail({ slide, recordingVisualSettings }: { slide: Slide; recordingVisualSettings: RecordingVisualSettings }) {
   const { frame } = slide;
+  const backgroundColor = normalizeCanvasBackgroundColor(recordingVisualSettings.canvasBackgroundColor);
+  const isDarkBackground = isDarkCanvasBackground(backgroundColor);
+  const backgroundStyle = getCanvasBackgroundCss(recordingVisualSettings);
+  const outlineStyle = {
+    stroke: isDarkBackground ? 'rgba(226, 232, 240, 0.62)' : 'rgba(15, 23, 42, 0.14)',
+  };
 
   return (
     <svg
-      className="slide-navigator__thumbnail"
+      className={`slide-navigator__thumbnail${isDarkBackground ? ' slide-navigator__thumbnail--dark' : ''}`}
       viewBox={`${frame.x} ${frame.y} ${frame.width} ${frame.height}`}
       role="img"
       aria-label={`${slide.name} preview`}
       preserveAspectRatio="xMidYMid meet"
     >
-      <rect className="slide-navigator__thumbnail-bg" {...frame} />
+      <foreignObject x={frame.x} y={frame.y} width={frame.width} height={frame.height}>
+        <div className="slide-navigator__thumbnail-bg-html" style={backgroundStyle} />
+      </foreignObject>
+      <rect className="slide-navigator__thumbnail-outline" style={outlineStyle} {...frame} />
       {slide.elements.map((element) => renderSlideThumbnailElement(element))}
     </svg>
   );
@@ -3136,7 +3175,7 @@ function drawRecordingSlideTransition(
   const step = getSlideTransitionStep(canvasRect.width);
 
   drawFixedRecordingBackground(context, layout, backgroundColor);
-  drawFixedCanvasSurface(context, layout);
+  drawFixedCanvasSurface(context, layout, visualSettings);
 
   context.save();
   clipToRecordingCanvas(context, layout);
@@ -3171,7 +3210,7 @@ function drawRecordingSnapshot(
   context.clip();
   context.translate(offsetX, 0);
   drawFixedRecordingBackground(context, layout, backgroundColor);
-  drawFixedCanvasSurface(context, layout);
+  drawFixedCanvasSurface(context, layout, visualSettings);
   context.save();
   clipToRecordingCanvas(context, layout);
   drawRecordingSnapshotContent(context, snapshot, imageCache, layout, 0);
@@ -3238,12 +3277,18 @@ function drawFixedRecordingBackground(
   context.fillRect(backgroundRect.x, backgroundRect.y, backgroundRect.width, backgroundRect.height);
 }
 
-function drawFixedCanvasSurface(context: CanvasRenderingContext2D, layout: ReturnType<typeof getStableRecordingCompositionLayout>) {
+function drawFixedCanvasSurface(
+  context: CanvasRenderingContext2D,
+  layout: ReturnType<typeof getStableRecordingCompositionLayout>,
+  visualSettings: RecordingVisualSettings
+) {
   const { canvasRect } = layout;
+  context.save();
   context.beginPath();
   addRoundedRectPath(context, canvasRect.x, canvasRect.y, canvasRect.width, canvasRect.height, layout.canvasRadius);
-  context.fillStyle = '#ffffff';
-  context.fill();
+  context.clip();
+  drawCanvasBackgroundPattern(context, canvasRect, visualSettings, Math.min(layout.scaleX, layout.scaleY));
+  context.restore();
 }
 
 function clipToRecordingCanvas(context: CanvasRenderingContext2D, layout: ReturnType<typeof getStableRecordingCompositionLayout>) {
@@ -4081,6 +4126,20 @@ function isCornerRadiusEditableElement(element: BoardElement): element is Extrac
 }
 
 export default WhiteboardPage;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

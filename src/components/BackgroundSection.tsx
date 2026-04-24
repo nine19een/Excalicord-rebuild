@@ -1,4 +1,4 @@
-import type { BackgroundCategory, BackgroundSwatch } from '../mockOptions';
+﻿import type { BackgroundCategory, BackgroundSwatch } from '../mockOptions';
 
 type BackgroundSectionProps = {
   categories: BackgroundCategory[];
@@ -23,7 +23,7 @@ function BackgroundSection({
 
   return (
     <div className="section-block">
-      <div className="section-title">背景</div>
+      <div className="section-title">边框</div>
       <div className="category-tabs">
         {categories.map((category) => (
           <button
@@ -40,7 +40,7 @@ function BackgroundSection({
         {showRandomCard && (
           <button type="button" className="background-swatch background-swatch--random" onClick={onRandomSelect}>
             <span className="background-swatch-random-icon">+</span>
-            <span className="background-swatch-random-label">随机选择背景</span>
+            <span className="background-swatch-random-label">随机选择边框</span>
           </button>
         )}
 

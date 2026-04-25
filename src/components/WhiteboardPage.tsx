@@ -2655,7 +2655,8 @@ function SlideNavigator({
                 setDragOverSlideId(null);
               }}
               onClick={() => onSelectSlide(slide.id)}
-            >              <button type="button" className="slide-navigator__thumbnail-button" onClick={(event) => { event.stopPropagation(); onSelectSlide(slide.id); }}>
+            >
+              <button type="button" className="slide-navigator__thumbnail-button" onClick={(event) => { event.stopPropagation(); onSelectSlide(slide.id); }}>
                 <SlideThumbnail slide={slide} recordingVisualSettings={recordingVisualSettings} />
               </button>
 
@@ -4126,6 +4127,7 @@ function isCornerRadiusEditableElement(element: BoardElement): element is Extrac
 }
 
 export default WhiteboardPage;
+
 
 
 

@@ -31,11 +31,21 @@ export function getRecordingCompositionLayout(
   const scale = backgroundRect.width / safeSourceWidth;
   const maxPadding = Math.max(0, Math.min(backgroundRect.width, backgroundRect.height) * ((1 - MIN_CANVAS_SCALE) / 2));
   const padding = Math.min(Math.max(0, visualSettings.canvasPadding * scale), maxPadding);
-  const canvasRect = {
+  const availableRect = {
     x: backgroundRect.x + padding,
     y: backgroundRect.y + padding,
     width: Math.max(1, backgroundRect.width - padding * 2),
     height: Math.max(1, backgroundRect.height - padding * 2),
+  };
+  const sourceRatio = safeSourceWidth / safeSourceHeight;
+  const availableRatio = availableRect.width / availableRect.height;
+  const canvasWidth = availableRatio > sourceRatio ? availableRect.height * sourceRatio : availableRect.width;
+  const canvasHeight = canvasWidth / sourceRatio;
+  const canvasRect = {
+    x: availableRect.x + (availableRect.width - canvasWidth) / 2,
+    y: availableRect.y + (availableRect.height - canvasHeight) / 2,
+    width: Math.max(1, canvasWidth),
+    height: Math.max(1, canvasHeight),
   };
   const scaleX = canvasRect.width / safeSourceWidth;
   const scaleY = canvasRect.height / safeSourceHeight;

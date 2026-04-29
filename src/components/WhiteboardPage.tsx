@@ -2378,7 +2378,9 @@ function RecordingSlideSwitchButtons({
         disabled={!hasPrevious}
         aria-label="Previous slide"
       >
-        {'\u2039'}
+        <svg className="board-recording-slide-button__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M14.5 6.5 9 12l5.5 5.5" />
+        </svg>
       </button>
       <button
         type="button"
@@ -2388,7 +2390,9 @@ function RecordingSlideSwitchButtons({
         disabled={!hasNext}
         aria-label="Next slide"
       >
-        {'\u203a'}
+        <svg className="board-recording-slide-button__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m9.5 6.5 5.5 5.5-5.5 5.5" />
+        </svg>
       </button>
     </>
   );

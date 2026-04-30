@@ -3650,11 +3650,51 @@ function drawFixedCanvasSurface(
   visualSettings: RecordingVisualSettings
 ) {
   const { canvasRect } = layout;
+  drawRecordingCanvasShadow(context, layout, visualSettings);
   context.save();
   context.beginPath();
   addRoundedRectPath(context, canvasRect.x, canvasRect.y, canvasRect.width, canvasRect.height, layout.canvasRadius);
   context.clip();
   drawCanvasBackgroundPattern(context, canvasRect, visualSettings, Math.min(layout.scaleX, layout.scaleY));
+  context.restore();
+}
+
+function drawRecordingCanvasShadow(
+  context: CanvasRenderingContext2D,
+  layout: ReturnType<typeof getStableRecordingCompositionLayout>,
+  visualSettings: RecordingVisualSettings
+) {
+  const { canvasRect } = layout;
+  const baseSize = Math.min(canvasRect.width, canvasRect.height);
+  const ambientBlur = Math.max(44, Math.min(84, baseSize * 0.11));
+  const ambientOffsetY = Math.max(18, Math.min(34, canvasRect.height * 0.052));
+  const closeBlur = Math.max(16, Math.min(30, baseSize * 0.042));
+  const closeOffsetY = Math.max(7, Math.min(15, canvasRect.height * 0.022));
+  const fillColor = normalizeCanvasBackgroundColor(visualSettings.canvasBackgroundColor);
+
+  drawRoundedShadow(context, layout, fillColor, 'rgba(15, 23, 42, 0.24)', ambientBlur, ambientOffsetY);
+  drawRoundedShadow(context, layout, fillColor, 'rgba(15, 23, 42, 0.12)', closeBlur, closeOffsetY);
+}
+
+function drawRoundedShadow(
+  context: CanvasRenderingContext2D,
+  layout: ReturnType<typeof getStableRecordingCompositionLayout>,
+  fillColor: string,
+  shadowColor: string,
+  shadowBlur: number,
+  shadowOffsetY: number
+) {
+  const { canvasRect } = layout;
+
+  context.save();
+  context.shadowColor = shadowColor;
+  context.shadowBlur = shadowBlur;
+  context.shadowOffsetX = 0;
+  context.shadowOffsetY = shadowOffsetY;
+  context.fillStyle = fillColor;
+  context.beginPath();
+  addRoundedRectPath(context, canvasRect.x, canvasRect.y, canvasRect.width, canvasRect.height, layout.canvasRadius);
+  context.fill();
   context.restore();
 }
 

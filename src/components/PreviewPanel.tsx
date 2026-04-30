@@ -155,6 +155,8 @@ function PreviewPanel({ aspectRatio, background, visualSettings, cameraSettings,
                   width: `${Math.round(canvasRect.width)}px`,
                   height: `${Math.round(canvasRect.height)}px`,
                   borderRadius: `${Math.round(compositionLayout.canvasRadius)}px`,
+                  boxShadow:
+                    '0 26px 72px rgba(15, 23, 42, 0.24), 0 10px 26px rgba(15, 23, 42, 0.12)',
                 }}
               >
                 {cameraSettings.enabled && cameraPreviewSize > 0 && (

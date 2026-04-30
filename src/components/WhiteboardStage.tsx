@@ -343,6 +343,18 @@ function WhiteboardStage({
       } satisfies SelectionOverlayBox;
     }
 
+    if (interaction?.type === 'moving' && lockedGroupSelectionBox?.idsKey === selectedIdsKey && selectedIds.length > 1) {
+      const dx = interaction.currentPoint.x - interaction.startPoint.x;
+      const dy = interaction.currentPoint.y - interaction.startPoint.y;
+      return {
+        ...lockedGroupSelectionBox,
+        x: lockedGroupSelectionBox.x + dx,
+        y: lockedGroupSelectionBox.y + dy,
+        centerX: lockedGroupSelectionBox.centerX + dx,
+        centerY: lockedGroupSelectionBox.centerY + dy,
+      } satisfies SelectionOverlayBox;
+    }
+
     if (selectedSingleElement) {
       const bounds = getElementBounds(selectedSingleElement);
       const center = getElementCenter(selectedSingleElement);
@@ -855,6 +867,7 @@ function WhiteboardStage({
           type: 'moving',
           pointerId: event.pointerId,
           startPoint: point,
+          currentPoint: point,
           snapshot,
           initialElements: structuredClone(elements),
         });
@@ -995,6 +1008,7 @@ function WhiteboardStage({
         type: 'moving',
         pointerId: event.pointerId,
         startPoint: point,
+        currentPoint: point,
         snapshot,
         initialElements: structuredClone(elements),
       });
@@ -1084,6 +1098,7 @@ function WhiteboardStage({
         });
         onElementsChange(nextElements);
         updateProvisionalOwners(nextElements, targetIds);
+        setInteraction({ ...interaction, currentPoint: point });
         break;
       }
       case 'rotating': {
@@ -1217,7 +1232,19 @@ function WhiteboardStage({
           idsKey: interaction.targetIds.join('|'),
         });
       } else if (interaction.type === 'moving') {
-        setLockedGroupSelectionBox(null);
+        if (lockedGroupSelectionBox?.idsKey === selectedIdsKey && selectedIds.length > 1) {
+          const dx = interaction.currentPoint.x - interaction.startPoint.x;
+          const dy = interaction.currentPoint.y - interaction.startPoint.y;
+          setLockedGroupSelectionBox({
+            ...lockedGroupSelectionBox,
+            x: lockedGroupSelectionBox.x + dx,
+            y: lockedGroupSelectionBox.y + dy,
+            centerX: lockedGroupSelectionBox.centerX + dx,
+            centerY: lockedGroupSelectionBox.centerY + dy,
+          });
+        } else {
+          setLockedGroupSelectionBox(null);
+        }
       }
 
       const ownerMap = provisionalOwnersRef.current;

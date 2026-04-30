@@ -252,6 +252,7 @@ export type InteractionState =
       type: 'moving';
       pointerId: number;
       startPoint: BoardPoint;
+      currentPoint: BoardPoint;
       snapshot: Record<string, BoardElement>;
       initialElements: BoardElement[];
     }

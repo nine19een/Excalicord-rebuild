@@ -1913,8 +1913,12 @@ function WhiteboardPage({
         return;
       }
 
-      const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
-      downloadRecordingBlob(blob);
+      const recordedMimeType = recorder.mimeType || mimeType || 'video/webm';
+      if (!recordedMimeType.toLowerCase().includes('mp4')) {
+        console.info('Current browser only supports WebM recording export.');
+      }
+      const blob = new Blob(chunks, { type: recordedMimeType });
+      downloadRecordingBlob(blob, recordedMimeType);
     };
 
     const renderFrame = () => {
@@ -3403,12 +3407,19 @@ function getRecordingOutputSize(frame: SlideFrame) {
 
 function getSupportedRecordingMimeType() {
   const candidates = [
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
+    'video/mp4;codecs=h264,aac',
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    'video/mp4',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
     'video/webm',
   ];
 
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? '';
+}
+
+function getRecordingFileExtension(mimeType: string) {
+  return mimeType.toLowerCase().includes('mp4') ? 'mp4' : 'webm';
 }
 
 function drawRecordingFrame(
@@ -4044,11 +4055,12 @@ function getSlideTransitionStep(width: number) {
   return width + getSlideTransitionGap(width);
 }
 
-function downloadRecordingBlob(blob: Blob) {
+function downloadRecordingBlob(blob: Blob, mimeType: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `excalicord-recording-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`;
+  const extension = getRecordingFileExtension(mimeType || blob.type);
+  anchor.download = `canvascast-recording-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

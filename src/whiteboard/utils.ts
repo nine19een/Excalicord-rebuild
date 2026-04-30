@@ -15,6 +15,10 @@ export function getTextRenderLines(text: string) {
   return (text || 'Text').split('\n');
 }
 
+export function getTextLineBoxGlyphOffset(fontSize: number) {
+  return (fontSize * (TEXT_LINE_HEIGHT_RATIO - 1)) / 2;
+}
+
 export function generateElementId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();

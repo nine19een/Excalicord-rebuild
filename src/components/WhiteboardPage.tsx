@@ -48,6 +48,7 @@ import {
   getElementBounds,
   getElementCenter,
   getSelectionBounds,
+  getTextLineBoxGlyphOffset,
   getTextRenderLines,
   moveElementCenterTo,
   normalizeRotation,
@@ -2998,7 +2999,7 @@ function SlideNavigator({
                           beginRename(slide);
                         }}
                       >
-                        {'重命名'}
+                        {'\u91cd\u547d\u540d'}
                       </button>
                       <button
                         type="button"
@@ -3009,7 +3010,7 @@ function SlideNavigator({
                           onDuplicateSlide(slide.id);
                         }}
                       >
-                        {'复制'}
+                        {'\u590d\u5236'}
                       </button>
                       <button
                         type="button"
@@ -3020,7 +3021,7 @@ function SlideNavigator({
                           onDeleteSlide(slide.id);
                         }}
                       >
-                        {'删除'}
+                        {'\u5220\u9664'}
                       </button>
                     </div>
                   ) : null}
@@ -3202,7 +3203,8 @@ function renderSlideThumbnailElementContent(element: BoardElement) {
       const clipId = getSlideThumbnailTextClipId(element.id);
       const lineHeight = element.fontSize * TEXT_LINE_HEIGHT_RATIO;
       const textX = element.x + TEXT_BOX_PADDING_X;
-      const textY = element.y + TEXT_BOX_PADDING_Y;
+      const recordingBaselineNudge = Math.min(2, Math.max(0.75, element.fontSize * 0.04));
+  const textY = element.y + TEXT_BOX_PADDING_Y + getTextLineBoxGlyphOffset(element.fontSize) - recordingBaselineNudge;
 
       return (
         <g key={element.id}>
@@ -3576,14 +3578,15 @@ function drawRecordingSnapshotContent(
   context: CanvasRenderingContext2D,
   snapshot: RecordingSnapshot,
   imageCache: Map<string, HTMLImageElement>,
-  layout: ReturnType<typeof getRecordingCompositionLayout>,
+  layout: ReturnType<typeof getStableRecordingCompositionLayout>,
   offsetX: number
 ) {
   const canvasRect = layout.canvasRect;
+  const recordingScale = layout.scaleX;
 
   context.save();
   context.translate(canvasRect.x + offsetX, canvasRect.y);
-  context.scale(layout.scaleX, layout.scaleY);
+  context.scale(recordingScale, recordingScale);
   context.translate(-snapshot.frame.x, -snapshot.frame.y);
   snapshot.elements.forEach((element) => drawCanvasElement(context, element, imageCache));
   context.restore();
@@ -3596,19 +3599,30 @@ function getStableRecordingCompositionLayout(
   cameraSettings: CameraSettings
 ) {
   const layout = getRecordingCompositionLayout(roundRecordingRect(backgroundRect), frame, visualSettings, cameraSettings);
-  const canvasRect = roundRecordingRect(layout.canvasRect);
   const safeFrameWidth = Math.max(frame.width, 1);
   const safeFrameHeight = Math.max(frame.height, 1);
+  const uniformScale = Math.min(
+    layout.canvasRect.width / safeFrameWidth,
+    layout.canvasRect.height / safeFrameHeight
+  );
+  const canvasWidth = safeFrameWidth * uniformScale;
+  const canvasHeight = safeFrameHeight * uniformScale;
+  const canvasRect = {
+    x: layout.canvasRect.x + (layout.canvasRect.width - canvasWidth) / 2,
+    y: layout.canvasRect.y + (layout.canvasRect.height - canvasHeight) / 2,
+    width: canvasWidth,
+    height: canvasHeight,
+  };
 
   return {
     ...layout,
     backgroundRect: roundRecordingRect(layout.backgroundRect),
     canvasRect,
     cameraRect: roundRecordingRect(layout.cameraRect),
-    canvasRadius: Math.round(layout.canvasRadius),
+    canvasRadius: layout.canvasRadius,
     cameraRadius: Math.round(layout.cameraRadius),
-    scaleX: canvasRect.width / safeFrameWidth,
-    scaleY: canvasRect.height / safeFrameHeight,
+    scaleX: uniformScale,
+    scaleY: uniformScale,
   };
 }
 
@@ -3689,7 +3703,7 @@ function drawFixedCanvasSurface(
   context.beginPath();
   addRoundedRectPath(context, canvasRect.x, canvasRect.y, canvasRect.width, canvasRect.height, layout.canvasRadius);
   context.clip();
-  drawCanvasBackgroundPattern(context, canvasRect, visualSettings, Math.min(layout.scaleX, layout.scaleY));
+  drawCanvasBackgroundPattern(context, canvasRect, visualSettings, layout.scaleX);
   context.restore();
 }
 
@@ -3910,6 +3924,7 @@ function drawCanvasElement(context: CanvasRenderingContext2D, element: BoardElem
   context.save();
   context.lineJoin = 'round';
   context.lineCap = 'round';
+  context.miterLimit = 4;
   context.globalAlpha *= clampOpacity(element.opacity);
   applyCanvasElementTransform(context, element);
   applyCanvasStrokeStyle(context, element);
@@ -3929,6 +3944,9 @@ function drawCanvasElement(context: CanvasRenderingContext2D, element: BoardElem
       const fillColor = normalizeFillColor(element.fillColor);
       const radius = clampCornerRadiusForSize(element.cornerRadius, box.width, box.height);
       context.beginPath();
+      const strokeStyle = normalizeStrokeStyle(element.strokeStyle);
+      context.lineCap = strokeStyle === 'dotted' ? 'round' : 'butt';
+      context.lineJoin = 'miter';
       context.strokeStyle = element.color;
       context.lineWidth = getCanvasElementStrokeWidth(element);
       addRoundedRectPath(context, box.x, box.y, box.width, box.height, radius);
@@ -3943,6 +3961,9 @@ function drawCanvasElement(context: CanvasRenderingContext2D, element: BoardElem
       const box = normalizeCanvasRect(element.x, element.y, element.width, element.height);
       const fillColor = normalizeFillColor(element.fillColor);
       context.beginPath();
+      const strokeStyle = normalizeStrokeStyle(element.strokeStyle);
+      context.lineCap = strokeStyle === 'dotted' ? 'round' : 'butt';
+      context.lineJoin = 'miter';
       context.strokeStyle = element.color;
       context.lineWidth = getCanvasElementStrokeWidth(element);
       context.ellipse(box.x + box.width / 2, box.y + box.height / 2, box.width / 2, box.height / 2, 0, 0, Math.PI * 2);
@@ -4067,18 +4088,18 @@ function getCanvasArrowGeometry(element: LinearElement) {
 function drawCanvasText(context: CanvasRenderingContext2D, element: Extract<BoardElement, { type: 'text' }>) {
   const lineHeight = element.fontSize * TEXT_LINE_HEIGHT_RATIO;
   const textX = element.x + TEXT_BOX_PADDING_X;
-  const textY = element.y + TEXT_BOX_PADDING_Y;
-  const textWidth = Math.max(1, element.width - TEXT_BOX_PADDING_X * 2);
-
+  const recordingBaselineNudge = Math.min(2, Math.max(0.75, element.fontSize * 0.04));
+  const textY = element.y + TEXT_BOX_PADDING_Y + getTextLineBoxGlyphOffset(element.fontSize) - recordingBaselineNudge;
   context.save();
   context.beginPath();
   context.rect(element.x, element.y, element.width, element.height);
   context.clip();
   context.fillStyle = element.color;
   context.font = `500 ${element.fontSize}px ${resolveTextFontFamily(element.fontFamily)}`;
+  context.textAlign = 'left';
   context.textBaseline = 'top';
   getTextRenderLines(element.text).forEach((line, index) => {
-    context.fillText(line || ' ', textX, textY + index * lineHeight, textWidth);
+    context.fillText(line || ' ', textX, textY + index * lineHeight);
   });
   context.restore();
 }

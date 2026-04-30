@@ -4374,7 +4374,7 @@ function flipElementAroundSelection<T extends BoardElement>(
     return {
       ...moved,
       flipX: !element.flipX,
-      rotation: normalizeRotation(180 - (element.rotation ?? 0)),
+      rotation: normalizeRotation(-(element.rotation ?? 0)),
     };
   }
 

@@ -8,7 +8,15 @@ import type { CameraSettings, MediaDeviceChoice, RecordingVisualSettings } from 
 import { aspectRatioOptions } from './mockOptions';
 import { frameBackgroundPresets } from './frameBackgrounds';
 
+const DESKTOP_MIN_WIDTH = 900;
+
 function App() {
+  const isDesktopViewport = useDesktopViewport(DESKTOP_MIN_WIDTH);
+
+  return isDesktopViewport ? <CanvasCastApp /> : <DesktopOnlyNotice />;
+}
+
+function CanvasCastApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeAspect, setActiveAspect] = useState('1:1');
   const [activeBackgroundId, setActiveBackgroundId] = useState(() => frameBackgroundPresets[0]?.id ?? '');
@@ -235,6 +243,37 @@ function App() {
         </div>
       )}
     </div>
+  );
+}
+
+function useDesktopViewport(minWidth: number) {
+  const getIsDesktop = () => (typeof window === 'undefined' ? true : window.innerWidth >= minWidth);
+  const [isDesktop, setIsDesktop] = useState(getIsDesktop);
+
+  useEffect(() => {
+    const handleResize = () => setIsDesktop(getIsDesktop());
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [minWidth]);
+
+  return isDesktop;
+}
+
+function DesktopOnlyNotice() {
+  return (
+    <main className="desktop-only-notice" aria-labelledby="desktop-only-title">
+      <section className="desktop-only-notice__card">
+        <div className="desktop-only-notice__mark" aria-hidden="true">
+          CanvasCast
+        </div>
+        <h1 id="desktop-only-title">CanvasCast is designed for desktop browsers.</h1>
+        <p>Please open this app on a laptop or desktop computer for the best whiteboard recording experience.</p>
+        <p className="desktop-only-notice__cn">
+          CanvasCast 目前面向桌面端浏览器设计。请使用电脑打开，以获得完整的白板绘制与录制体验。
+        </p>
+      </section>
+    </main>
   );
 }
 

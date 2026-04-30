@@ -33,6 +33,62 @@ button {
   background: #f8fafc;
 }
 
+
+.desktop-only-notice {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background:
+    radial-gradient(circle at top left, rgba(139, 92, 246, 0.18), transparent 34%),
+    linear-gradient(135deg, #0f172a 0%, #111827 52%, #1e1b4b 100%);
+  color: #0f172a;
+}
+
+.desktop-only-notice__card {
+  width: min(520px, 100%);
+  padding: 34px 30px 32px;
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 24px 70px rgba(2, 6, 23, 0.26);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  text-align: center;
+}
+
+.desktop-only-notice__mark {
+  width: fit-content;
+  margin: 0 auto 18px;
+  padding: 8px 13px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.1);
+  color: #6d28d9;
+  font-size: 0.82rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.desktop-only-notice h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: clamp(1.55rem, 7vw, 2.25rem);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+}
+
+.desktop-only-notice p {
+  margin: 16px 0 0;
+  color: #475569;
+  font-size: 0.98rem;
+  line-height: 1.65;
+}
+
+.desktop-only-notice__cn {
+  color: #334155;
+}
+
 .modal-shell {
   width: min(1240px, calc(100dvw - (2 * var(--page-padding-inline))));
   height: min(860px, calc(100dvh - (2 * var(--page-padding-block))));

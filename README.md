@@ -4,6 +4,12 @@ CanvasCast is a browser-based whiteboard recording app built with React, TypeScr
 
 It is inspired by modern screen recording tools and digital whiteboard tools, focusing on a smooth workflow for drawing, presenting, recording and exporting whiteboard-style content directly in the browser.
 
+## Demo
+
+Online Demo: https://canvascast.nine19een.com  
+
+Demo Video: Coming soon
+
 ## Overview
 
 CanvasCast brings together an infinite whiteboard, slide-based presentation flow, recording settings, frame backgrounds, camera overlay, microphone selection and a teleprompter into one browser-based workspace.
@@ -33,15 +39,23 @@ It is designed for technical explanations, teaching videos, visual notes, produc
 - Teleprompter with adjustable speed and opacity
 - Browser-based recording output
 
-## Demo
-
-Live Demo: Coming soon
-
-Demo Video: Coming soon
-
 ## Screenshots
 
-Coming soon.
+### Main Interface
+
+![CanvasCast main interface](docs/images/1.png)
+
+### Multi-slide Workflow
+
+![CanvasCast workflow](docs/images/2.png)
+
+### Recording Settings
+
+![CanvasCast recording settings](docs/images/3.png)
+
+### Recording Output
+
+![CanvasCast recording output](docs/images/4.png)
 
 ## Tech Stack
 
@@ -121,6 +135,11 @@ CanvasCast is a personal learning and portfolio project focused on product inter
 
 # CanvasCast 中文说明
 
+## 演示
+
+在线体验：https://canvascast.nine19een.com  
+演示视频：Coming soon
+
 ## 项目简介
 
 CanvasCast 是一个基于 React、TypeScript 和 Vite 构建的浏览器端白板录制工具。
@@ -154,6 +173,10 @@ CanvasCast 是一个基于 React、TypeScript 和 Vite 构建的浏览器端白�
 - SVG 白板渲染
 - MediaRecorder API
 - CSS 响应式布局
+
+## 截图
+
+截图见上方英文部分的 Screenshots。
 
 ## 本地运行
 

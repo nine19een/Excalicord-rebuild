@@ -100,6 +100,14 @@
   line-height: 1;
 }
 
+.board-toolbar__hint {
+  font-size: 0.56rem;
+  font-weight: 600;
+  line-height: 1;
+  color: rgba(100, 116, 139, 0.82);
+  letter-spacing: 0.02em;
+}
+
 .board-toolbar__input {
   display: none;
 }
@@ -370,6 +378,21 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 7px;
+}
+
+.board-properties-panel__palette-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.board-properties-panel__hint {
+  font-size: 0.52rem;
+  font-weight: 600;
+  line-height: 1;
+  color: rgba(100, 116, 139, 0.78);
+  letter-spacing: 0.02em;
 }
 
 .board-properties-panel__color-swatch {
@@ -720,6 +743,14 @@
   user-select: none;
 }
 
+.floating-controls__hint {
+  font-size: 0.52rem;
+  font-weight: 600;
+  line-height: 1;
+  color: rgba(100, 116, 139, 0.78);
+  letter-spacing: 0.02em;
+}
+
 .floating-controls__button {
   min-width: 72px;
   padding: 14px 16px;
@@ -728,6 +759,10 @@
   border: 1px solid rgba(15, 23, 42, 0.08);
   font-weight: 700;
   color: #334155;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
 }
 
 .floating-controls__button--record {

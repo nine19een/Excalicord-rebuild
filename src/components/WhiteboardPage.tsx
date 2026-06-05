@@ -9,6 +9,8 @@ import type { CameraSettings, RecordingVisualSettings } from '../cameraTypes';
 import { drawCanvasBackgroundPattern, getCanvasBackgroundCss, isDarkCanvasBackground, normalizeCanvasBackgroundColor } from '../canvasBackground';
 import { DEFAULT_FRAME_BACKGROUND_COLOR, type FrameBackgroundPreset } from '../frameBackgrounds';
 import { getRecordingCompositionLayout } from '../recordingLayout';
+import { matchShortcut, PALETTE_SHORTCUT_COLORS } from '../shortcuts';
+import type { ShortcutMap } from '../shortcuts';
 import type {
   BoardElement,
   BoardPoint,
@@ -69,6 +71,8 @@ type WhiteboardPageProps = {
   microphoneStream: MediaStream | null;
   recordingBackground: FrameBackgroundPreset | null;
   recordingVisualSettings: RecordingVisualSettings;
+  shortcutSettings: ShortcutMap;
+  isSettingsOpen: boolean;
 };
 
 type ElementScopeType = 'slide' | 'freeboard';
@@ -166,6 +170,8 @@ function WhiteboardPage({
   microphoneStream,
   recordingBackground,
   recordingVisualSettings,
+  shortcutSettings,
+  isSettingsOpen,
 }: WhiteboardPageProps) {
   const initialSlideRef = useRef<Slide | null>(null);
   if (!initialSlideRef.current) {
@@ -559,67 +565,158 @@ function WhiteboardPage({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const isTypingTarget =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable;
-
-      if (isTypingTarget) {
+      if (isTypingEventTarget(event.target)) {
         return;
       }
 
-      const key = event.key.toLowerCase();
-      const hasModifier = event.metaKey || event.ctrlKey;
-
-      if (hasModifier && key === 'z') {
+      if (matchShortcut(event, shortcutSettings.undo)) {
         event.preventDefault();
-        if (event.shiftKey) {
-          redo();
-        } else {
-          undo();
-        }
+        undo();
         return;
       }
 
-      if (event.ctrlKey && key === 'y') {
+      if (matchShortcut(event, shortcutSettings.redo)) {
         event.preventDefault();
         redo();
         return;
       }
 
-      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedIds.length > 0) {
+      if (matchShortcut(event, shortcutSettings.deleteSelection)) {
         event.preventDefault();
-        const nextElements = elements.filter((element) => !selectedIds.includes(element.id));
-        onCommitElementsChange(elements, nextElements);
-        setSelectedIds([]);
-        setTextEditor((current) => (current && selectedIds.includes(current.elementId) ? null : current));
+        if (activeTool === 'select' && selectedIds.length > 0) {
+          const nextElements = elements.filter((element) => !selectedIds.includes(element.id));
+          onCommitElementsChange(elements, nextElements);
+          setSelectedIds([]);
+          setTextEditor((current) => (current && selectedIds.includes(current.elementId) ? null : current));
+        }
         return;
       }
 
-      if (hasModifier && key === 'c' && selectedIds.length > 0) {
+      if (matchShortcut(event, shortcutSettings.copy)) {
         event.preventDefault();
-        setClipboard(cloneElements(elements.filter((element) => selectedIds.includes(element.id))));
-        setPasteCount(0);
+        if (selectedIds.length > 0) {
+          setClipboard(cloneElements(elements.filter((element) => selectedIds.includes(element.id))));
+          setPasteCount(0);
+        }
         return;
       }
 
-      if (hasModifier && key === 'v' && clipboard.length > 0) {
+      if (matchShortcut(event, shortcutSettings.paste)) {
         event.preventDefault();
-        const offsetStep = 24 * (pasteCount + 1);
-        const pastedElements = duplicateElements(clipboard, generateElementId).map((element) =>
-          offsetElement(element, offsetStep, offsetStep)
-        );
-        const nextElements = [...elements, ...pastedElements];
-        onCommitElementsChange(elements, nextElements);
-        setSelectedIds(pastedElements.map((element) => element.id));
-        setPasteCount((current) => current + 1);
+        if (clipboard.length > 0) {
+          const offsetStep = 24 * (pasteCount + 1);
+          const pastedElements = duplicateElements(clipboard, generateElementId).map((element) =>
+            offsetElement(element, offsetStep, offsetStep)
+          );
+          const nextElements = [...elements, ...pastedElements];
+          onCommitElementsChange(elements, nextElements);
+          setSelectedIds(pastedElements.map((element) => element.id));
+          setPasteCount((current) => current + 1);
+        }
+        return;
+      }
+
+      if (matchShortcut(event, shortcutSettings.duplicate)) {
+        event.preventDefault();
+        const duplicatedElements = duplicateElements(
+          elements.filter((element) => selectedIds.includes(element.id)),
+          generateElementId
+        ).map((element) => offsetElement(element, 24, 24));
+        if (duplicatedElements.length > 0) {
+          onCommitElementsChange(elements, [...elements, ...duplicatedElements]);
+          setSelectedIds(duplicatedElements.map((element) => element.id));
+          setPasteCount((current) => current + 1);
+        }
+        return;
+      }
+
+      if (recordingStatus === 'idle') {
+        const toolShortcuts: Array<{ shortcut: string; tool: ToolType }> = [
+          { shortcut: shortcutSettings.toolSelect, tool: 'select' },
+          { shortcut: shortcutSettings.toolHand, tool: 'hand' },
+          { shortcut: shortcutSettings.toolEraser, tool: 'eraser' },
+          { shortcut: shortcutSettings.toolDraw, tool: 'draw' },
+          { shortcut: shortcutSettings.toolRectangle, tool: 'rectangle' },
+          { shortcut: shortcutSettings.toolEllipse, tool: 'ellipse' },
+          { shortcut: shortcutSettings.toolArrow, tool: 'arrow' },
+          { shortcut: shortcutSettings.toolLine, tool: 'line' },
+          { shortcut: shortcutSettings.toolText, tool: 'text' },
+          { shortcut: shortcutSettings.toolImage, tool: 'image' },
+        ];
+
+        for (const item of toolShortcuts) {
+          if (matchShortcut(event, item.shortcut)) {
+            event.preventDefault();
+            handleToolChange(item.tool);
+            return;
+          }
+        }
+
+        const paletteShortcutBindings = [
+          shortcutSettings.palette1,
+          shortcutSettings.palette2,
+          shortcutSettings.palette3,
+          shortcutSettings.palette4,
+          shortcutSettings.palette5,
+          shortcutSettings.palette6,
+          shortcutSettings.palette7,
+          shortcutSettings.palette8,
+          shortcutSettings.palette9,
+        ];
+
+        const paletteIndex = paletteShortcutBindings.findIndex((binding) => matchShortcut(event, binding));
+        if (paletteIndex >= 0) {
+          event.preventDefault();
+          const paletteColor = PALETTE_SHORTCUT_COLORS[paletteIndex];
+          if (!paletteColor) {
+            return;
+          }
+
+          if (activeTool === 'select') {
+            const selectedColorIds = new Set(
+              elements.filter((element) => selectedIds.includes(element.id) && isColorEditableElement(element)).map((element) => element.id)
+            );
+            if (selectedColorIds.size > 0) {
+              const nextElements = elements.map((element) =>
+                selectedColorIds.has(element.id) && isColorEditableElement(element)
+                  ? {
+                      ...element,
+                      color: paletteColor,
+                    }
+                  : element
+              );
+              onCommitElementsChange(elements, nextElements);
+            }
+            return;
+          }
+
+          if (activeTool === 'text') {
+            setTextDefaults((current) => ({ ...current, color: paletteColor }));
+            return;
+          }
+
+          if (isShapeColorTool(activeTool)) {
+            setShapeDefaults((current) => ({ ...current, color: paletteColor }));
+          }
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [clipboard, elements, onCommitElementsChange, pasteCount, redo, selectedIds, undo]);
+  }, [
+    activeTool,
+    clipboard,
+    elements,
+    handleToolChange,
+    onCommitElementsChange,
+    pasteCount,
+    recordingStatus,
+    redo,
+    selectedIds,
+    shortcutSettings,
+    undo,
+  ]);
 
 
 
@@ -1046,19 +1143,12 @@ function WhiteboardPage({
 
   useEffect(() => {
     const handleZoomKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const isTypingTarget =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable;
-
-      if (isTypingTarget || !(event.ctrlKey || event.metaKey)) {
+      if (isTypingEventTarget(event.target)) {
         return;
       }
 
-      const isZoomOutKey = event.key === '-' || event.code === 'Minus' || event.code === 'NumpadSubtract';
-      const isZoomInKey = event.key === '=' || event.key === '+' || event.code === 'Equal' || event.code === 'NumpadAdd';
-
+      const isZoomOutKey = matchShortcut(event, shortcutSettings.zoomOut);
+      const isZoomInKey = matchShortcut(event, shortcutSettings.zoomIn);
       if (!isZoomOutKey && !isZoomInKey) {
         return;
       }
@@ -1078,7 +1168,7 @@ function WhiteboardPage({
 
     window.addEventListener('keydown', handleZoomKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleZoomKeyDown, { capture: true });
-  }, [recordingStatus, zoomIn, zoomOut]);
+  }, [recordingStatus, shortcutSettings.zoomIn, shortcutSettings.zoomOut, zoomIn, zoomOut]);
 
 
   const handleLayerAction = useCallback(
@@ -1155,7 +1245,6 @@ function WhiteboardPage({
     setSelectedIds([]);
     setTextEditor((current) => (current && selectedIds.includes(current.elementId) ? null : current));
   }, [activeTool, elements, onCommitElementsChange, selectedIds]);
-
   const handleInsertImage = async (file: File) => {
     const src = await readFileAsDataUrl(file);
     const dimensions = await readImageDimensions(src);
@@ -1683,6 +1772,76 @@ function WhiteboardPage({
   }, [restoreNormalViewport]);
 
   useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || isSettingsOpen) {
+        return;
+      }
+
+      if (isClearConfirmOpen) {
+        event.preventDefault();
+        cancelClearBoard();
+        return;
+      }
+
+      if (isTeleprompterOpen) {
+        event.preventDefault();
+        setIsTeleprompterOpen(false);
+        return;
+      }
+
+      if (imageCrop) {
+        event.preventDefault();
+        handleCancelImageCrop();
+        return;
+      }
+
+      if (recordingStatus === 'preparing') {
+        event.preventDefault();
+        cancelRecordingPreparing();
+        return;
+      }
+
+      if (textEditor) {
+        const target = event.target;
+        if (target instanceof HTMLTextAreaElement && target.classList.contains('board-text-editor')) {
+          return;
+        }
+
+        event.preventDefault();
+        setTextEditor(null);
+        return;
+      }
+
+      if (selectedIds.length > 0) {
+        event.preventDefault();
+        setSelectedIds([]);
+        return;
+      }
+
+      if (CREATION_TOOLS.has(activeTool)) {
+        event.preventDefault();
+        handleToolChange('select');
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape, { capture: true });
+    return () => window.removeEventListener('keydown', handleEscape, { capture: true });
+  }, [
+    activeTool,
+    cancelClearBoard,
+    cancelRecordingPreparing,
+    handleCancelImageCrop,
+    handleToolChange,
+    imageCrop,
+    isClearConfirmOpen,
+    isSettingsOpen,
+    isTeleprompterOpen,
+    recordingStatus,
+    selectedIds.length,
+    textEditor,
+  ]);
+
+  useEffect(() => {
     if (recordingStatus === 'idle' || !recordingTarget) {
       return;
     }
@@ -1722,28 +1881,30 @@ function WhiteboardPage({
 
   useEffect(() => {
     const handleRecordingSlideKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const isTypingTarget =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable;
-
-      if (isTypingTarget || recordingStatus === 'idle' || recordingTarget?.mode !== 'slide') {
+      if (isTypingEventTarget(event.target) || recordingStatus === 'idle' || recordingTarget?.mode !== 'slide') {
         return;
       }
 
-      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+      const goPrev = matchShortcut(event, shortcutSettings.recordingPrevSlide);
+      const goNext = matchShortcut(event, shortcutSettings.recordingNextSlide);
+      if (!goPrev && !goNext) {
         return;
       }
 
       event.preventDefault();
       event.stopPropagation();
-      goToRecordingSlideOffset(event.key === 'ArrowLeft' ? -1 : 1);
+      goToRecordingSlideOffset(goPrev ? -1 : 1);
     };
 
     window.addEventListener('keydown', handleRecordingSlideKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleRecordingSlideKeyDown, { capture: true });
-  }, [goToRecordingSlideOffset, recordingStatus, recordingTarget]);
+  }, [
+    goToRecordingSlideOffset,
+    recordingStatus,
+    recordingTarget,
+    shortcutSettings.recordingNextSlide,
+    shortcutSettings.recordingPrevSlide,
+  ]);
 
   const handleToolbarTextStyleChange = (patch: Partial<TextStyle>) => {
     setTextDefaults((current) => ({ ...current, ...patch }));
@@ -1969,6 +2130,86 @@ function WhiteboardPage({
       setRecordingError('Recording could not be started in this browser.');
     }
   }, [activeSlideId, elements, getCurrentRecordingFrame, microphoneStream, recordingTarget, resetRecordingTimer, restoreNormalViewport, stageSlides, startRecordingTimer, viewport]);
+
+  useEffect(() => {
+    const handleRecordingControlKeyDown = (event: KeyboardEvent) => {
+      if (isTypingEventTarget(event.target) || isSettingsOpen) {
+        return;
+      }
+
+      if (matchShortcut(event, shortcutSettings.openSettings) && recordingStatus === 'idle') {
+        event.preventDefault();
+        onOpenSettings();
+        return;
+      }
+
+      if (matchShortcut(event, shortcutSettings.toggleTeleprompter)) {
+        event.preventDefault();
+        setIsTeleprompterOpen((current) => !current);
+        return;
+      }
+
+      if (matchShortcut(event, shortcutSettings.recordingEnterPreparing) && recordingStatus === 'idle') {
+        event.preventDefault();
+        enterRecordingPreparing();
+        return;
+      }
+
+      if (matchShortcut(event, shortcutSettings.recordingCancelPreparing) && recordingStatus === 'preparing') {
+        event.preventDefault();
+        cancelRecordingPreparing();
+        return;
+      }
+
+      if (matchShortcut(event, shortcutSettings.recordingStart) && recordingStatus === 'preparing') {
+        event.preventDefault();
+        startRecording();
+        return;
+      }
+
+      if (matchShortcut(event, shortcutSettings.recordingPause) && recordingStatus === 'recording') {
+        event.preventDefault();
+        pauseRecording();
+        return;
+      }
+
+      if (matchShortcut(event, shortcutSettings.recordingResume) && recordingStatus === 'paused') {
+        event.preventDefault();
+        resumeRecording();
+        return;
+      }
+
+      if (
+        matchShortcut(event, shortcutSettings.recordingStop) &&
+        (recordingStatus === 'recording' || recordingStatus === 'paused')
+      ) {
+        event.preventDefault();
+        stopRecording();
+      }
+    };
+
+    window.addEventListener('keydown', handleRecordingControlKeyDown);
+    return () => window.removeEventListener('keydown', handleRecordingControlKeyDown);
+  }, [
+    cancelRecordingPreparing,
+    enterRecordingPreparing,
+    isSettingsOpen,
+    onOpenSettings,
+    pauseRecording,
+    recordingStatus,
+    resumeRecording,
+    shortcutSettings.openSettings,
+    shortcutSettings.recordingCancelPreparing,
+    shortcutSettings.recordingEnterPreparing,
+    shortcutSettings.recordingPause,
+    shortcutSettings.recordingResume,
+    shortcutSettings.recordingStart,
+    shortcutSettings.recordingStop,
+    shortcutSettings.toggleTeleprompter,
+    startRecording,
+    stopRecording,
+  ]);
+
   const handleToolbarColorChange = (
     patch: Partial<ColorStyle>,
     options: { commit?: boolean; target?: 'selection' | 'tool' } = {}
@@ -2223,6 +2464,7 @@ function WhiteboardPage({
           canRedo={history.future.length > 0}
           onUndo={undo}
           onRedo={redo}
+          shortcutSettings={shortcutSettings}
         />
       <div className="board-left-rail">
         <FloatingControlBar
@@ -2236,6 +2478,7 @@ function WhiteboardPage({
           onToggleTeleprompter={() => setIsTeleprompterOpen((current) => !current)}
           recordingStatus={recordingStatus}
           recordingElapsedLabel={recordingElapsedLabel}
+          shortcutSettings={shortcutSettings}
         />
         <LeftPropertiesPanel
         activeTool={activeTool}
@@ -2264,6 +2507,7 @@ function WhiteboardPage({
         canTransformSelection={activeTool === 'select' && selectedIds.length > 0}
         onRotateSelection={handleRotateSelection}
         onFlipSelection={handleFlipSelection}
+        shortcutSettings={shortcutSettings}
               />
       </div>
       {isTeleprompterOpen ? (
@@ -4567,6 +4811,14 @@ async function readImageDimensions(src: string) {
     image.onerror = reject;
     image.src = src;
   });
+}
+
+function isTypingEventTarget(target: EventTarget | null) {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
 }
 
 function isColorTool(tool: ToolType) {

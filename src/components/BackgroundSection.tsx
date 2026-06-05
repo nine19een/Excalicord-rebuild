@@ -1,10 +1,11 @@
-﻿import type { FrameBackgroundPreset } from '../frameBackgrounds';
+import type { FrameBackgroundPreset } from '../frameBackgrounds';
 
 type BackgroundSectionProps = {
   options: FrameBackgroundPreset[];
   selectedBackgroundId: string;
   onSelectBackground: (id: string) => void;
   onRandomSelect: () => void;
+  showTitle?: boolean;
 };
 
 function BackgroundSection({
@@ -12,12 +13,13 @@ function BackgroundSection({
   selectedBackgroundId,
   onSelectBackground,
   onRandomSelect,
+  showTitle = true,
 }: BackgroundSectionProps) {
   const hasBackgrounds = options.length > 0;
 
   return (
     <div className="section-block background-section">
-      <div className="section-title">{'\u80cc\u666f'}</div>
+      {showTitle ? <div className="section-title">{'\u80cc\u666f'}</div> : null}
       <button
         type="button"
         className="background-random-button"

@@ -1,4 +1,4 @@
-﻿import { useMemo, useRef } from 'react';
+﻿import { useMemo, useRef, useState } from 'react';
 import AspectRatioSection from './AspectRatioSection';
 import BackgroundSection from './BackgroundSection';
 import CameraSection from './CameraSection';
@@ -7,6 +7,8 @@ import PreviewPanel from './PreviewPanel';
 import { getCanvasPatternColor, normalizeCanvasBackgroundColor } from '../canvasBackground';
 import { aspectRatioOptions } from '../mockOptions';
 import { frameBackgroundPresets } from '../frameBackgrounds';
+import { DEFAULT_SHORTCUTS, SHORTCUT_SECTIONS } from '../shortcuts';
+import type { ShortcutAction, ShortcutMap } from '../shortcuts';
 
 const CANVAS_PADDING_MAX = 80;
 const CANVAS_BACKGROUND_SPACING_MIN = 40;
@@ -18,6 +20,16 @@ const canvasBackgroundColors = [
   { label: '薄荷', value: '#e4f0ec' },
   { label: '淡粉', value: '#f0e5e1' },
   { label: '深色', value: '#242424' },
+];
+
+type SettingsTabId = 'canvas' | 'background' | 'camera' | 'cursor' | 'shortcuts';
+
+const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
+  { id: 'canvas', label: '画布' },
+  { id: 'background', label: '背景' },
+  { id: 'camera', label: '摄像头' },
+  { id: 'cursor', label: '光标' },
+  { id: 'shortcuts', label: '快捷键' },
 ];
 
 const canvasBackgroundPatterns: Array<{ label: string; value: CanvasBackgroundPattern }> = [
@@ -41,6 +53,9 @@ type RecordingSettingsModalProps = {
   cameraStream: MediaStream | null;
   mediaError: string | null;
   onRefreshDevices: () => void;
+  shortcutSettings: ShortcutMap;
+  onShortcutChange: (action: ShortcutAction, value: string) => void;
+  onShortcutReset: () => void;
   onClose?: () => void;
 };
 
@@ -58,8 +73,12 @@ function RecordingSettingsModal({
   cameraStream,
   mediaError,
   onRefreshDevices,
+  shortcutSettings,
+  onShortcutChange,
+  onShortcutReset,
   onClose,
 }: RecordingSettingsModalProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTabId>('canvas');
   const selectedBackground = useMemo(
     () => frameBackgroundPresets.find((option) => option.id === activeBackgroundId) ?? null,
     [activeBackgroundId]
@@ -99,40 +118,81 @@ function RecordingSettingsModal({
             </div>
           </div>
 
+          <div className="settings-tabs" role="tablist" aria-label="设置分类">
+            {SETTINGS_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                className={`settings-tab ${activeTab === tab.id ? 'settings-tab--active' : ''}`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
           <div className="settings-content">
             <div className="settings-scroll">
-              <div className="settings-group settings-group--section">
-                <CanvasSection
-                  activeAspect={activeAspect}
-                  onAspectChange={onAspectChange}
-                  settings={recordingVisualSettings}
-                  onChange={onRecordingVisualSettingsChange}
-                />
-              </div>
+              {activeTab === 'canvas' ? (
+                <div className="settings-group settings-group--section">
+                  <CanvasSection
+                    activeAspect={activeAspect}
+                    onAspectChange={onAspectChange}
+                    settings={recordingVisualSettings}
+                    onChange={onRecordingVisualSettingsChange}
+                    showTitle={false}
+                  />
+                </div>
+              ) : null}
 
-              <div className="settings-group settings-group--section">
-                <BackgroundSection
-                  options={frameBackgroundPresets}
-                  selectedBackgroundId={activeBackgroundId}
-                  onSelectBackground={onBackgroundChange}
-                  onRandomSelect={handleRandomBackground}
-                />
-              </div>
+              {activeTab === 'background' ? (
+                <div className="settings-group settings-group--section">
+                  <BackgroundSection
+                    options={frameBackgroundPresets}
+                    selectedBackgroundId={activeBackgroundId}
+                    onSelectBackground={onBackgroundChange}
+                    onRandomSelect={handleRandomBackground}
+                    showTitle={false}
+                  />
+                </div>
+              ) : null}
 
-              <div className="settings-group settings-group--section">
-                <CameraSection
-                  settings={cameraSettings}
-                  onChange={onCameraSettingsChange}
-                  videoDevices={videoDevices}
-                  audioDevices={audioDevices}
-                  mediaError={mediaError}
-                  onRefreshDevices={onRefreshDevices}
-                />
-              </div>
+              {activeTab === 'camera' ? (
+                <div className="settings-group settings-group--section">
+                  <CameraSection
+                    settings={cameraSettings}
+                    onChange={onCameraSettingsChange}
+                    videoDevices={videoDevices}
+                    audioDevices={audioDevices}
+                    mediaError={mediaError}
+                    onRefreshDevices={onRefreshDevices}
+                    showTitle={false}
+                  />
+                </div>
+              ) : null}
 
-              <div className="settings-group settings-group--section">
-                <CursorEffectSection settings={recordingVisualSettings} onChange={onRecordingVisualSettingsChange} />
-              </div>
+              {activeTab === 'cursor' ? (
+                <div className="settings-group settings-group--section">
+                  <CursorEffectSection
+                    settings={recordingVisualSettings}
+                    onChange={onRecordingVisualSettingsChange}
+                    showTitle={false}
+                  />
+                </div>
+              ) : null}
+
+              {activeTab === 'shortcuts' ? (
+                <div className="settings-group settings-group--section">
+                  <ShortcutSettingsSection
+                    shortcutSettings={shortcutSettings}
+                    onShortcutChange={onShortcutChange}
+                    onShortcutReset={onShortcutReset}
+                    showTitle={false}
+                  />
+                </div>
+              ) : null}
             </div>
           </div>
         </section>
@@ -146,11 +206,13 @@ function CanvasSection({
   onAspectChange,
   settings,
   onChange,
+  showTitle = true,
 }: {
   activeAspect: string;
   onAspectChange: (aspect: string) => void;
   settings: RecordingVisualSettings;
   onChange: (patch: Partial<RecordingVisualSettings>) => void;
+  showTitle?: boolean;
 }) {
   const canvasPaddingValue = Math.min(settings.canvasPadding, CANVAS_PADDING_MAX);
   const canvasBackgroundSpacing = clampBackgroundSpacing(settings.canvasBackgroundSpacing);
@@ -163,7 +225,7 @@ function CanvasSection({
 
   return (
     <div className="section-block">
-      <div className="section-title">画布</div>
+      {showTitle ? <div className="section-title">画布</div> : null}
       <div className="settings-subsection">
         <div className="settings-subsection-title">画布比例</div>
         <AspectRatioSection
@@ -276,13 +338,15 @@ function CanvasSection({
 function CursorEffectSection({
   settings,
   onChange,
+  showTitle = true,
 }: {
   settings: RecordingVisualSettings;
   onChange: (patch: Partial<RecordingVisualSettings>) => void;
+  showTitle?: boolean;
 }) {
   return (
     <div className="section-block">
-      <div className="section-title">光标</div>
+      {showTitle ? <div className="section-title">光标</div> : null}
       <div className="camera-shape-options" role="group" aria-label="光标">
         <button
           type="button"
@@ -304,6 +368,52 @@ function CursorEffectSection({
           onClick={() => onChange({ cursorEffect: 'highlight' })}
         >
           高亮光标
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ShortcutSettingsSection({
+  shortcutSettings,
+  onShortcutChange,
+  onShortcutReset,
+  showTitle = true,
+}: {
+  shortcutSettings: ShortcutMap;
+  onShortcutChange: (action: ShortcutAction, value: string) => void;
+  onShortcutReset: () => void;
+  showTitle?: boolean;
+}) {
+  return (
+    <div className="section-block">
+      {showTitle ? <div className="section-title">快捷键</div> : null}
+      <p className="shortcut-settings__description">
+        快捷键格式示例：<code>Mod+Z</code>、<code>Mod+C</code>、<code>Shift+R</code>。可用 <code>|</code> 添加备选键，例如
+        <code>Delete|Backspace</code>。
+      </p>
+
+      {SHORTCUT_SECTIONS.map((section) => (
+        <div key={section.id} className="settings-subsection">
+          <div className="settings-subsection-title">{section.label}</div>
+          <div className="shortcut-settings__grid">
+            {section.actions.map((item) => (
+              <label key={item.action} className="shortcut-settings__field">
+                <span>{item.label}</span>
+                <input
+                  type="text"
+                  value={shortcutSettings[item.action]}
+                  placeholder={DEFAULT_SHORTCUTS[item.action] || '未设置'}
+                  onChange={(event) => onShortcutChange(item.action, event.target.value)}
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="shortcut-settings__actions">
+        <button type="button" className="camera-control" onClick={onShortcutReset}>
+          重置快捷键
         </button>
       </div>
     </div>

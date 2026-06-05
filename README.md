@@ -34,8 +34,9 @@ It is designed for technical explanations, teaching videos, visual notes, produc
 4. Open the recording settings panel.
 5. Choose the canvas ratio, canvas color, canvas pattern and frame background.
 6. Optionally enable the camera overlay, choose a microphone and use the teleprompter.
-7. Start recording and present your slides.
-8. Export the recording as a video file.
+7. Optionally open **Settings → Shortcuts** to customize keyboard bindings for tools, editing and recording.
+8. Start recording and present your slides.
+9. Export the recording as a video file.
 
 ## Desktop-first Notice
 
@@ -67,6 +68,8 @@ For the best experience, use a modern Chromium-based browser such as Microsoft E
 - Independent microphone device selection
 - Teleprompter with adjustable speed and opacity
 - Browser-based recording output
+- Customizable keyboard shortcuts (tools, edit actions, palette colors, zoom and recording)
+- Tabbed recording settings panel (canvas, background, camera, cursor, shortcuts)
 
 ## Screenshots
 
@@ -143,11 +146,15 @@ Camera overlay and microphone input are controlled separately. Users can record 
 
 CanvasCast includes a floating teleprompter with playback controls, adjustable scrolling speed and opacity settings for smoother recording sessions.
 
+### Keyboard shortcuts
+
+CanvasCast supports customizable shortcuts for tools, undo/redo, copy/paste, palette colors, zoom and recording controls. Defaults cover common editor actions; recording shortcuts are left unassigned so you can bind them in **Settings → Shortcuts**. Assigned keys are shown as small hints on the toolbar and recording controls. Settings are saved in the browser. Press **Escape** to close open panels or clear the current selection.
+
 ## Current Status
 
 CanvasCast is currently in the MVP stage.
 
-Core whiteboard editing, slide workflow, recording settings, frame backgrounds, camera overlay, teleprompter and browser-based recording have been implemented.
+Core whiteboard editing, slide workflow, recording settings, frame backgrounds, camera overlay, teleprompter, customizable keyboard shortcuts and browser-based recording have been implemented.
 
 ## Roadmap
 
@@ -194,8 +201,9 @@ CanvasCast 是一个基于 React、TypeScript 和 Vite 构建的浏览器端白�
 4. 打开录制设置，调整画布比例、背景、画布颜色和画布样式。
 5. 如有需要，打开提词器，提前准备讲解脚本。
 6. 根据录制需要开启摄像头小窗，或只选择麦克风录制声音。
-7. 点击录制按钮开始讲解。
-8. 录制结束后导出视频文件。
+7. 如有需要，可在 **设置 → 快捷键** 中自定义工具、编辑操作与录制相关快捷键。
+8. 点击录制按钮开始讲解。
+9. 录制结束后导出视频文件。
 
 ## 使用建议
 
@@ -222,6 +230,8 @@ CanvasCast 是一个基于 React、TypeScript 和 Vite 构建的浏览器端白�
 - 独立麦克风选择
 - 提词器
 - 浏览器端录制导出
+- 可自定义快捷键（工具、编辑操作、调色板、缩放与录制）
+- 分标签页的录制设置（画布、背景、摄像头、光标、快捷键）
 
 ## 技术栈
 
@@ -284,6 +294,10 @@ CanvasCast 支持多张幻灯片、缩略图、复制、删除、重命名和拖
 
 内置提词器支持播放控制、滚动速度和透明度调整，适合需要脚本辅助的讲解和演示录制。
 
+### 快捷键支持
+
+支持自定义工具切换、撤销/重做、复制粘贴、调色板颜色、缩放以及录制相关操作的快捷键。常用编辑快捷键有默认值；录制相关快捷键默认不绑定，可在 **设置 → 快捷键** 中自行配置。已绑定的快捷键会在工具栏和录制控件上显示轻量提示，设置会保存在浏览器本地。按 **Esc** 可依次关闭已打开的面板或取消当前选中。
+
 ## 当前版本限制
 
 - 当前主要面向电脑端浏览器。
@@ -294,7 +308,7 @@ CanvasCast 支持多张幻灯片、缩略图、复制、删除、重命名和拖
 
 ## 当前状态
 
-CanvasCast 目前处于 MVP 阶段。核心白板编辑、幻灯片工作流、录制设置、背景图、摄像头小窗、麦克风选择、提词器和浏览器端录制功能已经完成。
+CanvasCast 目前处于 MVP 阶段。核心白板编辑、幻灯片工作流、录制设置、背景图、摄像头小窗、麦克风选择、提词器、可自定义快捷键和浏览器端录制功能已经完成。
 
 后续会继续优化导出能力、移动端适配、性能表现和更多录制体验。
 

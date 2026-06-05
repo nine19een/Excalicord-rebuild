@@ -7,6 +7,8 @@ import { DEFAULT_CAMERA_SETTINGS, DEFAULT_RECORDING_VISUAL_SETTINGS } from './ca
 import type { CameraSettings, MediaDeviceChoice, RecordingVisualSettings } from './cameraTypes';
 import { aspectRatioOptions } from './mockOptions';
 import { frameBackgroundPresets } from './frameBackgrounds';
+import { DEFAULT_SHORTCUTS, loadShortcutSettings, saveShortcutSettings } from './shortcuts';
+import type { ShortcutAction, ShortcutMap } from './shortcuts';
 
 const DESKTOP_MIN_WIDTH = 900;
 
@@ -28,6 +30,7 @@ function CanvasCastApp() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [microphoneStream, setMicrophoneStream] = useState<MediaStream | null>(null);
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const [shortcutSettings, setShortcutSettings] = useState<ShortcutMap>(() => loadShortcutSettings());
   const activeAspectItem = useMemo(
     () => aspectRatioOptions.find((option) => option.key === activeAspect) ?? aspectRatioOptions[4],
     [activeAspect]
@@ -43,6 +46,12 @@ function CanvasCastApp() {
 
   const updateRecordingVisualSettings = useCallback((patch: Partial<RecordingVisualSettings>) => {
     setRecordingVisualSettings((current) => ({ ...current, ...patch }));
+  }, []);
+  const updateShortcutSetting = useCallback((action: ShortcutAction, value: string) => {
+    setShortcutSettings((current) => ({ ...current, [action]: value }));
+  }, []);
+  const resetShortcutSettings = useCallback(() => {
+    setShortcutSettings({ ...DEFAULT_SHORTCUTS });
   }, []);
 
   const refreshDevices = useCallback(async () => {
@@ -194,6 +203,28 @@ function CanvasCastApp() {
     };
   }, [cameraSettings.audioDeviceId, refreshDevices]);
 
+  useEffect(() => {
+    saveShortcutSettings(shortcutSettings);
+  }, [shortcutSettings]);
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      event.preventDefault();
+      setSettingsOpen(false);
+    };
+
+    window.addEventListener('keydown', handleEscape, { capture: true });
+    return () => window.removeEventListener('keydown', handleEscape, { capture: true });
+  }, [settingsOpen]);
+
   return (
     <div className="app-shell">
       <WhiteboardPage
@@ -205,6 +236,8 @@ function CanvasCastApp() {
         microphoneStream={microphoneStream}
         recordingBackground={activeBackground}
         recordingVisualSettings={recordingVisualSettings}
+        shortcutSettings={shortcutSettings}
+        isSettingsOpen={settingsOpen}
       />
 
       {settingsOpen && (
@@ -237,6 +270,9 @@ function CanvasCastApp() {
               cameraStream={cameraStream}
               mediaError={mediaError}
               onRefreshDevices={refreshDevices}
+              shortcutSettings={shortcutSettings}
+              onShortcutChange={updateShortcutSetting}
+              onShortcutReset={resetShortcutSettings}
               onClose={() => setSettingsOpen(false)}
             />
           </div>

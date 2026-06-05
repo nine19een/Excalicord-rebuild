@@ -1,5 +1,7 @@
 import { useRef } from 'react';
 import type { CSSProperties, ChangeEvent } from 'react';
+import { formatShortcutHint } from '../shortcuts';
+import type { ShortcutMap } from '../shortcuts';
 import type { ColorStyle, LayerAction, StrokeStyle, TextStyle, ToolType } from '../whiteboard/types';
 import {
   BOARD_COLOR_OPTIONS,
@@ -52,6 +54,7 @@ type LeftPropertiesPanelProps = {
   showCropImageAction: boolean;
   canCropImage: boolean;
   onCropImage: () => void;
+  shortcutSettings: ShortcutMap;
 };
 
 type PanelIconName =
@@ -121,6 +124,7 @@ function LeftPropertiesPanel({
   showCropImageAction,
   canCropImage,
   onCropImage,
+  shortcutSettings,
 }: LeftPropertiesPanelProps) {
   const customColorInputRef = useRef<HTMLInputElement | null>(null);
   const customFillColorInputRef = useRef<HTMLInputElement | null>(null);
@@ -223,17 +227,20 @@ function LeftPropertiesPanel({
 
   const renderColorPalette = () => (
     <div className="board-properties-panel__palette" aria-label="\u989c\u8272\u9009\u62e9">
-      {EXTENDED_COLOR_OPTIONS.map((color) => {
+      {EXTENDED_COLOR_OPTIONS.map((color, index) => {
         const isActive = activeColor === color;
+        const paletteBinding = index < 9 ? shortcutSettings[`palette${index + 1}` as keyof ShortcutMap] : undefined;
         return (
-          <button
-            key={color}
-            type="button"
-            className={`board-properties-panel__color-swatch ${isActive ? 'board-properties-panel__color-swatch--active' : ''}`}
-            style={{ '--swatch-color': color } as CSSProperties}
-            onClick={() => onColorChange({ color }, { target: styleTarget, commit: true })}
-            aria-label={`\u5207\u6362\u989c\u8272 ${color}`}
-          />
+          <div key={color} className="board-properties-panel__palette-item">
+            <button
+              type="button"
+              className={`board-properties-panel__color-swatch ${isActive ? 'board-properties-panel__color-swatch--active' : ''}`}
+              style={{ '--swatch-color': color } as CSSProperties}
+              onClick={() => onColorChange({ color }, { target: styleTarget, commit: true })}
+              aria-label={`\u5207\u6362\u989c\u8272 ${color}`}
+            />
+            {paletteBinding ? <span className="board-properties-panel__hint">{formatShortcutHint(paletteBinding)}</span> : null}
+          </div>
         );
       })}
       <button
@@ -529,6 +536,15 @@ function LeftPropertiesPanel({
                     >
                       {renderPanelIcon(action.icon)}
                       {renderActionLabel(action.label)}
+                      <ShortcutHint
+                        binding={
+                          action.key === 'duplicate'
+                            ? shortcutSettings.duplicate
+                            : action.key === 'delete'
+                              ? shortcutSettings.deleteSelection
+                              : undefined
+                        }
+                      />
                     </button>
                   ))}
                 </div>
@@ -539,6 +555,15 @@ function LeftPropertiesPanel({
       )}
     </aside>
   );
+}
+
+function ShortcutHint({ binding }: { binding: string | undefined }) {
+  const hint = formatShortcutHint(binding);
+  if (!hint) {
+    return null;
+  }
+
+  return <span className="board-properties-panel__hint">{hint}</span>;
 }
 
 function renderActionLabel(label: string) {

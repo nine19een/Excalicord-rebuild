@@ -1,3 +1,6 @@
+import { formatShortcutHint } from '../shortcuts';
+import type { ShortcutMap } from '../shortcuts';
+
 type FloatingControlBarProps = {
   onOpenSettings: () => void;
   onEnterPreparing: () => void;
@@ -9,6 +12,7 @@ type FloatingControlBarProps = {
   onToggleTeleprompter: () => void;
   recordingStatus: 'idle' | 'preparing' | 'recording' | 'paused';
   recordingElapsedLabel: string;
+  shortcutSettings: ShortcutMap;
 };
 
 const SETTINGS_LABEL = '\u8bbe\u7f6e';
@@ -38,10 +42,12 @@ function IconButton({
   label,
   type,
   onClick,
+  shortcutHint,
 }: {
   label: string;
   type: 'settings' | 'teleprompter';
   onClick: () => void;
+  shortcutHint?: string;
 }) {
   return (
     <button
@@ -53,8 +59,18 @@ function IconButton({
     >
       <FloatingControlIcon type={type} />
       <span>{label}</span>
+      {shortcutHint ? <span className="floating-controls__hint">{shortcutHint}</span> : null}
     </button>
   );
+}
+
+function ControlHint({ binding }: { binding: string | undefined }) {
+  const hint = formatShortcutHint(binding);
+  if (!hint) {
+    return null;
+  }
+
+  return <span className="floating-controls__hint">{hint}</span>;
 }
 
 function FloatingControlBar({
@@ -68,40 +84,66 @@ function FloatingControlBar({
   onToggleTeleprompter,
   recordingStatus,
   recordingElapsedLabel,
+  shortcutSettings,
 }: FloatingControlBarProps) {
   return (
     <div className="floating-controls">
       {recordingStatus === 'idle' ? (
         <>
-          <IconButton label={SETTINGS_LABEL} type="settings" onClick={onOpenSettings} />
-          <IconButton label={TELEPROMPTER_LABEL} type="teleprompter" onClick={onToggleTeleprompter} />
+          <IconButton
+            label={SETTINGS_LABEL}
+            type="settings"
+            onClick={onOpenSettings}
+            shortcutHint={formatShortcutHint(shortcutSettings.openSettings)}
+          />
+          <IconButton
+            label={TELEPROMPTER_LABEL}
+            type="teleprompter"
+            onClick={onToggleTeleprompter}
+            shortcutHint={formatShortcutHint(shortcutSettings.toggleTeleprompter)}
+          />
           <button type="button" className="floating-controls__button floating-controls__button--record" onClick={onEnterPreparing}>
             <span className="floating-controls__record-dot" aria-hidden="true" />
             {'\u5f55\u5236'}
+            <ControlHint binding={shortcutSettings.recordingEnterPreparing} />
           </button>
         </>
       ) : null}
 
       {recordingStatus === 'preparing' ? (
         <>
-          <IconButton label={TELEPROMPTER_LABEL} type="teleprompter" onClick={onToggleTeleprompter} />
+          <IconButton
+            label={TELEPROMPTER_LABEL}
+            type="teleprompter"
+            onClick={onToggleTeleprompter}
+            shortcutHint={formatShortcutHint(shortcutSettings.toggleTeleprompter)}
+          />
           <button type="button" className="floating-controls__button" onClick={onCancelPreparing}>
             {'\u53d6\u6d88'}
+            <ControlHint binding={shortcutSettings.recordingCancelPreparing} />
           </button>
           <button type="button" className="floating-controls__button floating-controls__button--start" onClick={onStartRecording}>
             {'\u5f00\u59cb\u5f55\u5236'}
+            <ControlHint binding={shortcutSettings.recordingStart} />
           </button>
         </>
       ) : null}
 
       {recordingStatus === 'recording' ? (
         <>
-          <IconButton label={TELEPROMPTER_LABEL} type="teleprompter" onClick={onToggleTeleprompter} />
+          <IconButton
+            label={TELEPROMPTER_LABEL}
+            type="teleprompter"
+            onClick={onToggleTeleprompter}
+            shortcutHint={formatShortcutHint(shortcutSettings.toggleTeleprompter)}
+          />
           <button type="button" className="floating-controls__button floating-controls__button--pause" onClick={onPauseRecording}>
             {'\u6682\u505c'}
+            <ControlHint binding={shortcutSettings.recordingPause} />
           </button>
           <button type="button" className="floating-controls__button floating-controls__button--stop" onClick={onStopRecording}>
             {'\u505c\u6b62'}
+            <ControlHint binding={shortcutSettings.recordingStop} />
           </button>
           <span className="floating-controls__timer"><span />{recordingElapsedLabel}</span>
         </>
@@ -109,12 +151,19 @@ function FloatingControlBar({
 
       {recordingStatus === 'paused' ? (
         <>
-          <IconButton label={TELEPROMPTER_LABEL} type="teleprompter" onClick={onToggleTeleprompter} />
+          <IconButton
+            label={TELEPROMPTER_LABEL}
+            type="teleprompter"
+            onClick={onToggleTeleprompter}
+            shortcutHint={formatShortcutHint(shortcutSettings.toggleTeleprompter)}
+          />
           <button type="button" className="floating-controls__button floating-controls__button--start" onClick={onResumeRecording}>
             {'\u7ee7\u7eed'}
+            <ControlHint binding={shortcutSettings.recordingResume} />
           </button>
           <button type="button" className="floating-controls__button floating-controls__button--stop" onClick={onStopRecording}>
             {'\u505c\u6b62'}
+            <ControlHint binding={shortcutSettings.recordingStop} />
           </button>
           <span className="floating-controls__timer floating-controls__timer--paused"><span />{recordingElapsedLabel}</span>
         </>

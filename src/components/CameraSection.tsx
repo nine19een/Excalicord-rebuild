@@ -1,4 +1,4 @@
-﻿import type { CameraSettings, MediaDeviceChoice } from '../cameraTypes';
+import type { CameraSettings, MediaDeviceChoice } from '../cameraTypes';
 
 type CameraSectionProps = {
   settings: CameraSettings;
@@ -7,6 +7,7 @@ type CameraSectionProps = {
   audioDevices: MediaDeviceChoice[];
   mediaError: string | null;
   onRefreshDevices: () => void;
+  showTitle?: boolean;
 };
 
 function CameraSection({
@@ -16,10 +17,11 @@ function CameraSection({
   audioDevices,
   mediaError,
   onRefreshDevices,
+  showTitle = true,
 }: CameraSectionProps) {
   return (
     <div className="section-block">
-      <div className="section-title">摄像头及麦克风</div>
+      {showTitle ? <div className="section-title">摄像头及麦克风</div> : null}
 
       <div className="camera-settings-grid">
         <label className="camera-setting-field">

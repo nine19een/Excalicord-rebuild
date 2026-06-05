@@ -1,5 +1,7 @@
 import { useRef } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
+import { formatShortcutHint, TOOL_SHORTCUT_ACTIONS } from '../shortcuts';
+import type { ShortcutMap } from '../shortcuts';
 import type { ToolType } from '../whiteboard/types';
 
 type TopToolbarProps = {
@@ -10,6 +12,7 @@ type TopToolbarProps = {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  shortcutSettings: ShortcutMap;
 };
 
 type ToolbarItem = {
@@ -51,6 +54,7 @@ function TopToolbar({
   canRedo,
   onUndo,
   onRedo,
+  shortcutSettings,
 }: TopToolbarProps) {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const actionItems: ToolbarActionItem[] = [
@@ -90,6 +94,7 @@ function TopToolbar({
               >
                 <ToolbarIcon type={item.key} />
                 <span className="board-toolbar__label">{item.label}</span>
+                <ShortcutHint binding={getToolShortcutBinding(item.key, shortcutSettings)} />
               </button>
             );
           })}
@@ -107,6 +112,7 @@ function TopToolbar({
           >
             <ToolbarIcon type={item.key} />
             <span className="board-toolbar__label">{item.label}</span>
+            <ShortcutHint binding={item.key === 'undo' ? shortcutSettings.undo : shortcutSettings.redo} />
           </button>
         ))}
       </div>
@@ -120,6 +126,20 @@ function TopToolbar({
       />
     </div>
   );
+}
+
+function ShortcutHint({ binding }: { binding: string | undefined }) {
+  const hint = formatShortcutHint(binding);
+  if (!hint) {
+    return null;
+  }
+
+  return <span className="board-toolbar__hint">{hint}</span>;
+}
+
+function getToolShortcutBinding(tool: ToolType, shortcutSettings: ShortcutMap) {
+  const action = TOOL_SHORTCUT_ACTIONS[tool as keyof typeof TOOL_SHORTCUT_ACTIONS];
+  return action ? shortcutSettings[action] : undefined;
 }
 
 function ToolbarIcon({ type }: { type: ToolType | ToolbarActionItem['key'] }) {
